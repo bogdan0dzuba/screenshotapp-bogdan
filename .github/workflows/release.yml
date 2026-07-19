@@ -1,14 +1,10 @@
-name: Проверка и релиз
+name: Проверка Universal-сборки
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   universal-macos:
@@ -36,38 +32,8 @@ jobs:
         shell: bash
         run: |
           version="0.5.3"
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          fi
           echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Собрать Universal-приложение
         run: ./script/build_release.sh
-
-      - name: Создать подписанный канал обновлений
-        if: github.ref_type == 'tag'
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          test -n "$SPARKLE_PRIVATE_KEY"
-          printf '%s' "$SPARKLE_PRIVATE_KEY" | \
-            .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
-              --ed-key-file - \
-              --download-url-prefix "https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/download/$GITHUB_REF_NAME/" \
-              --link "https://github.com/bogdan0dzuba/screenshotapp-bogdan" \
-              --maximum-versions 1 \
-              dist
-
-      - name: Опубликовать GitHub Release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/ScreenshotApp-Bogdan-macOS-Universal.zip \
-            dist/ScreenshotApp-Bogdan-macOS-Universal.zip.sha256 \
-            dist/appcast.xml \
-            --verify-tag \
-            --title "ScreenshotApp Bogdan $GITHUB_REF_NAME" \
-            --generate-notes

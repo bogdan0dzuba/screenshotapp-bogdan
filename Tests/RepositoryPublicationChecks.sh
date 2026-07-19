@@ -6,6 +6,7 @@ WORKFLOW="${2:-.github/workflows/release.yml}"
 GITIGNORE="${3:-.gitignore}"
 MENU_BAR="${4:-Sources/ScreenshotApp/Views/MenuBarView.swift}"
 PRIVACY="${5:-PRIVACY.md}"
+PUBLISH_SCRIPT="${6:-script/publish_release.sh}"
 
 require_text() {
   local file="$1"
@@ -50,8 +51,7 @@ require_text "$README" "CaptureMetadataChecks.sh" "README omits the metadata ver
 
 require_text "$WORKFLOW" "runs-on: macos-15" "workflow does not use a supported macOS runner"
 require_text "$WORKFLOW" "./script/build_release.sh" "workflow does not create a Universal release"
-require_text "$WORKFLOW" "gh release create" "workflow does not publish tagged releases"
-require_text "$WORKFLOW" "contents: write" "workflow cannot upload release assets"
+require_text "$PUBLISH_SCRIPT" "gh release create" "local release script does not publish tagged releases"
 require_text "$WORKFLOW" "CaptureMetadataChecks.sh" "workflow does not verify capture metadata propagation"
 
 require_text "$GITIGNORE" ".build/" "Swift build output is not ignored"
