@@ -57,8 +57,8 @@ require_text "$WORKFLOW" "CaptureMetadataChecks.sh" "workflow does not verify ca
 require_text "$GITIGNORE" ".build/" "Swift build output is not ignored"
 require_text "$GITIGNORE" "dist/" "local release output is not ignored"
 require_text "$MENU_BAR" "Проверить обновления…" "the app has no visible update action"
-require_text "$MENU_BAR" "bogdan0dzuba/screenshotapp-bogdan/releases/latest" \
-  "the update action does not open the latest GitHub release"
+require_text "$MENU_BAR" "updateService.checkForUpdates()" \
+  "the update action is not connected to the in-app updater"
 require_text "$PRIVACY" "заголовок активного окна" "privacy policy omits locally saved window titles"
 
 echo "RepositoryPublicationChecks: OK"

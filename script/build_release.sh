@@ -5,8 +5,8 @@ BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="ScreenshotApp Bogdan"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.2}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-16}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.3}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-17}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -14,6 +14,7 @@ STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-release-stage-$(id -u)"
 APP_BUNDLE="$STAGE_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$BUILD_PRODUCT"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ARM_BUILD_DIR="/private/tmp/ScreenshotApp-Bogdan-release-arm64-$(id -u)"
@@ -95,7 +96,7 @@ bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 
 /bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$INTEL_BUILD_DIR"
-mkdir -p "$DIST_DIR" "$APP_MACOS"
+mkdir -p "$DIST_DIR" "$APP_MACOS" "$APP_FRAMEWORKS"
 
 build_architecture "arm64-apple-macosx14.0" "$ARM_BUILD_DIR"
 build_architecture "x86_64-apple-macosx14.0" "$INTEL_BUILD_DIR"
@@ -104,6 +105,9 @@ ARM_BINARY="$ARM_BUILD_DIR/arm64-apple-macosx/release/$BUILD_PRODUCT"
 INTEL_BINARY="$INTEL_BUILD_DIR/x86_64-apple-macosx/release/$BUILD_PRODUCT"
 /usr/bin/lipo -create "$ARM_BINARY" "$INTEL_BINARY" -output "$APP_BINARY"
 chmod +x "$APP_BINARY"
+/usr/bin/ditto \
+  "$ARM_BUILD_DIR/arm64-apple-macosx/release/Sparkle.framework" \
+  "$APP_FRAMEWORKS/Sparkle.framework"
 
 ARCHS="$(/usr/bin/lipo -archs "$APP_BINARY")"
 [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" x86_64 "* ]] || {
@@ -126,6 +130,14 @@ ARCHS="$(/usr/bin/lipo -archs "$APP_BINARY")"
 /usr/bin/plutil -insert NSScreenCaptureUsageDescription -string \
   "Приложению нужен доступ к экрану, чтобы создавать выбранные вами снимки." \
   "$INFO_PLIST"
+/usr/bin/plutil -insert SUFeedURL -string \
+  "https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/appcast.xml" \
+  "$INFO_PLIST"
+/usr/bin/plutil -insert SUPublicEDKey -string \
+  "fhGTeCAerHeifyqZb9B3uETRm5mFSfIcTE8pW/HyjP0=" \
+  "$INFO_PLIST"
+/usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$INFO_PLIST"
+/usr/bin/plutil -insert SUAllowsAutomaticUpdates -bool YES "$INFO_PLIST"
 
 /usr/bin/xattr -cr "$APP_BUNDLE"
 if [[ -n "${SCREENSHOT_APP_SIGNING_IDENTITY:-}" ]]; then
@@ -135,10 +147,16 @@ if [[ -n "${SCREENSHOT_APP_SIGNING_IDENTITY:-}" ]]; then
     --options runtime \
     --timestamp \
     --sign "$SCREENSHOT_APP_SIGNING_IDENTITY" \
+    "$APP_FRAMEWORKS/Sparkle.framework"
+  /usr/bin/codesign \
+    --force \
+    --options runtime \
+    --timestamp \
+    --sign "$SCREENSHOT_APP_SIGNING_IDENTITY" \
     "$APP_BUNDLE"
 else
   echo "Developer ID не задан: используется ad-hoc подпись для открытой тестовой версии."
-  /usr/bin/codesign --force --deep --sign - "$APP_BUNDLE"
+  /usr/bin/codesign --force --sign - "$APP_BUNDLE"
 fi
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 

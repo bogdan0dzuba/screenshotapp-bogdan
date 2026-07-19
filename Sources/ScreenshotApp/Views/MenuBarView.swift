@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updateService: UpdateService
 
     var body: some View {
         Button("Снять область  \(model.hotKeyDescription)") { model.capture(.area) }
@@ -14,11 +15,7 @@ struct MenuBarView: View {
         Button("Открыть папку") { NSWorkspace.shared.open(model.preferences.captureFolder) }
         Button("Скопировать путь папки") { model.copyFolderPath() }
         Divider()
-        Button("Проверить обновления…") {
-            NSWorkspace.shared.open(
-                URL(string: "https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest")!
-            )
-        }
+        Button("Проверить обновления…") { updateService.checkForUpdates() }
         SettingsLink { Text("Настройки…") }
         Divider()
         Button("Завершить ScreenshotApp") { NSApp.terminate(nil) }

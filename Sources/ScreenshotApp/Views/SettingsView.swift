@@ -3,10 +3,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updateService: UpdateService
     @ObservedObject private var preferences: AppPreferences
 
-    init(model: AppModel) {
+    init(model: AppModel, updateService: UpdateService) {
         self.model = model
+        self.updateService = updateService
         _preferences = ObservedObject(wrappedValue: model.preferences)
     }
 
@@ -72,6 +74,21 @@ struct SettingsView: View {
             Section("Редактор") {
                 Toggle("Закрывать редактор после копирования", isOn: $preferences.closeEditorAfterCopy)
                 Text("Работает для Ctrl+C, ⌘C и кнопки «Копировать». При ошибке редактор останется открытым.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Обновления") {
+                Toggle(
+                    "Автоматически проверять обновления",
+                    isOn: $updateService.automaticallyChecksForUpdates
+                )
+                Toggle(
+                    "Автоматически скачивать обновления",
+                    isOn: $updateService.automaticallyDownloadsUpdates
+                )
+                .disabled(!updateService.automaticallyChecksForUpdates)
+                Button("Проверить сейчас…") { updateService.checkForUpdates() }
+                Text("Обновления скачиваются из публичных GitHub Releases и проверяются криптографической подписью.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
