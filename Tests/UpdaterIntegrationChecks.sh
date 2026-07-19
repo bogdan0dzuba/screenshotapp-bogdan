@@ -28,5 +28,9 @@ if /usr/bin/grep -Fq -- 'runs-on: macos-15-intel' .github/workflows/release.yml;
   echo "UpdaterIntegrationChecks: Intel runner reproducibly kills CoreChecks after linking" >&2
   exit 1
 fi
+require_text .github/workflows/release.yml 'swift build --disable-sandbox --product CoreChecks' \
+  "CI does not build CoreChecks in an isolated SwiftPM process"
+require_text .github/workflows/release.yml '.build/debug/CoreChecks' \
+  "CI does not execute the already-built CoreChecks binary"
 
 echo "UpdaterIntegrationChecks: OK"

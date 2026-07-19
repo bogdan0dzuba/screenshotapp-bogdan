@@ -18,7 +18,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Проверить тестируемое ядро
-        run: swift run --disable-sandbox CoreChecks
+        run: |
+          swift build --disable-sandbox --product CoreChecks
+          .build/debug/CoreChecks
 
       - name: Проверить интерфейсные контракты
         run: |
