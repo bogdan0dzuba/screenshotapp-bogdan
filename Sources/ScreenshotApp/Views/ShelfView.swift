@@ -5,10 +5,14 @@ import SwiftUI
 struct ShelfView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var history: HistoryStore
+    @ObservedObject private var preferences: AppPreferences
+    @State private var splitDragStartFraction: Double?
+    @State private var splitDividerCursorIsActive = false
 
     init(model: AppModel) {
         self.model = model
         _history = ObservedObject(wrappedValue: model.history)
+        _preferences = ObservedObject(wrappedValue: model.preferences)
     }
 
     var body: some View {
@@ -19,7 +23,10 @@ struct ShelfView: View {
                 expandedBody
             }
         }
-        .shelfGlassSurface(isCollapsed: model.shelfState == .collapsed)
+        .shelfGlassSurface(
+            isCollapsed: model.shelfState == .collapsed,
+            transparency: model.preferences.shelfTransparency
+        )
     }
 
     private var collapsedBody: some View {
@@ -94,14 +101,76 @@ struct ShelfView: View {
             header
             Divider().opacity(0.22)
             if let item = model.selectedItem {
-                latest(item)
-                Divider().opacity(0.22)
-                historyList(selected: item)
+                adjustableContent(item)
             } else {
                 emptyState
             }
             Divider().opacity(0.22)
             captureBar
+        }
+    }
+
+    private func adjustableContent(_ item: CaptureItem) -> some View {
+        GeometryReader { proxy in
+            let split = ShelfSplitLayout.heights(
+                availableHeight: proxy.size.height,
+                historyFraction: preferences.historyFraction
+            )
+            VStack(spacing: 0) {
+                latest(item)
+                    .frame(height: split.latest)
+                splitDivider(availableHeight: proxy.size.height)
+                historyList(selected: item)
+                    .frame(height: split.history)
+            }
+        }
+    }
+
+    private func splitDivider(availableHeight: CGFloat) -> some View {
+        ZStack {
+            Color.clear
+            Capsule()
+                .fill(.secondary.opacity(0.52))
+                .frame(width: 38, height: 3)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: ShelfSplitLayout.dividerHeight)
+        .contentShape(Rectangle())
+        .shelfFirstClickEnabled()
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let start = splitDragStartFraction ?? preferences.historyFraction
+                    if splitDragStartFraction == nil {
+                        splitDragStartFraction = start
+                    }
+                    preferences.historyFraction = ShelfSplitLayout.historyFraction(
+                        startingFraction: start,
+                        verticalTranslation: value.translation.height,
+                        availableHeight: availableHeight
+                    )
+                }
+                .onEnded { _ in
+                    splitDragStartFraction = nil
+                }
+        )
+        .onHover { isInside in
+            updateSplitDividerCursor(isInside: isInside)
+        }
+        .onDisappear {
+            updateSplitDividerCursor(isInside: false)
+        }
+        .help("Перетащите, чтобы изменить размер истории")
+        .accessibilityLabel("Изменить размер истории")
+    }
+
+    private func updateSplitDividerCursor(isInside: Bool) {
+        guard isInside != splitDividerCursorIsActive else { return }
+        splitDividerCursorIsActive = isInside
+        if isInside {
+            NSCursor.resizeUpDown.push()
+        } else {
+            NSCursor.pop()
         }
     }
 
@@ -115,7 +184,7 @@ struct ShelfView: View {
                 .monospacedDigit()
                 .lineLimit(1)
             Text(model.hotKeyDescription)
-                .font(.caption2.monospaced().weight(.medium))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
             ShelfWindowDragHandle()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -194,11 +263,6 @@ struct ShelfView: View {
             }
             .padding(ShelfMetrics.expandedContentPadding)
         }
-        .frame(
-            minHeight: ShelfMetrics.historyMinimumHeight,
-            idealHeight: ShelfMetrics.historyIdealHeight,
-            maxHeight: ShelfMetrics.historyMaximumHeight
-        )
     }
 
     private var emptyState: some View {
@@ -275,6 +339,7 @@ struct ShelfView: View {
 
 private struct ShelfGlassSurfaceModifier: ViewModifier {
     let isCollapsed: Bool
+    let transparency: Double
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -286,14 +351,21 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
                 content
                     .environment(\.colorScheme, .dark)
                     .glassEffect(
-                        .clear.interactive(),
+                        .regular.interactive(),
                         in: Capsule()
                     )
-                    .background(Color.black.opacity(reduceTransparency ? 0.78 : 0.24), in: Capsule())
+                    .background(
+                        Color.black.opacity(adaptiveTintOpacity(maximum: 0.24)),
+                        in: Capsule()
+                    )
             } else {
                 let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
                 content
-                    .glassEffect(.clear, in: shape)
+                    .glassEffect(.regular, in: shape)
+                    .background(
+                        Color.black.opacity(adaptiveTintOpacity(maximum: 0.2)),
+                        in: shape
+                    )
             }
         } else {
             fallbackSurface(content: content)
@@ -314,15 +386,18 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
             let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
             content
                 .environment(\.colorScheme, .dark)
-                .background { fallbackBackground(shape: shape, tintOpacity: 0.28) }
+                .background { fallbackBackground(shape: shape, tintOpacity: 0.46) }
                 .clipShape(shape)
         }
     }
 
     private func fallbackBackground<S: InsettableShape>(shape: S, tintOpacity: Double) -> some View {
-        ZStack {
+        let transparency = min(max(self.transparency, 0), 1)
+        return ZStack {
             shape.fill(.ultraThinMaterial)
-            shape.fill(Color.black.opacity(reduceTransparency ? 0.78 : tintOpacity))
+            shape.fill(Color.black.opacity(
+                reduceTransparency ? 0.78 : tintOpacity * (1 - transparency)
+            ))
             shape.stroke(
                 LinearGradient(
                     colors: [.white.opacity(0.46), .white.opacity(0.08), .white.opacity(0.24)],
@@ -333,11 +408,19 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
             )
         }
     }
+
+    private func adaptiveTintOpacity(maximum: Double) -> Double {
+        let transparency = min(max(self.transparency, 0), 1)
+        return reduceTransparency ? 0.78 : maximum * (1 - transparency)
+    }
 }
 
 private extension View {
-    func shelfGlassSurface(isCollapsed: Bool) -> some View {
-        modifier(ShelfGlassSurfaceModifier(isCollapsed: isCollapsed))
+    func shelfGlassSurface(isCollapsed: Bool, transparency: Double) -> some View {
+        modifier(ShelfGlassSurfaceModifier(
+            isCollapsed: isCollapsed,
+            transparency: transparency
+        ))
     }
 
     func shelfToggleHitTarget() -> some View {

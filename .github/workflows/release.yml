@@ -32,7 +32,7 @@ jobs:
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.0"
+          version="0.5.1"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
           fi

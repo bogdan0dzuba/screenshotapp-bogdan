@@ -23,6 +23,8 @@ final class AppPreferences: ObservableObject {
         static let closeEditorAfterCopy = "closeEditorAfterCopy"
         static let maximumCount = "maximumCount"
         static let maximumAgeDays = "maximumAgeDays"
+        static let historyFraction = "historyFraction"
+        static let shelfTransparency = "shelfTransparency"
     }
 
     @Published var captureFolder: URL { didSet { defaults.set(captureFolder.path, forKey: Key.folder) } }
@@ -42,9 +44,30 @@ final class AppPreferences: ObservableObject {
         }
     }
     @Published var maximumAgeDays: Int { didSet { defaults.set(maximumAgeDays, forKey: Key.maximumAgeDays) } }
+    @Published var historyFraction: Double {
+        didSet {
+            let constrained = ShelfSplitLayout.historyFraction(historyFraction)
+            guard constrained == historyFraction else {
+                historyFraction = constrained
+                return
+            }
+            defaults.set(constrained, forKey: Key.historyFraction)
+        }
+    }
+    @Published var shelfTransparency: Double {
+        didSet {
+            let constrained = Self.clampedTransparency(shelfTransparency)
+            guard constrained == shelfTransparency else {
+                shelfTransparency = constrained
+                return
+            }
+            defaults.set(constrained, forKey: Key.shelfTransparency)
+        }
+    }
 
     let availableLetters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
     private let defaults: UserDefaults
+    static let defaultShelfTransparency = 0.35
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -61,7 +84,15 @@ final class AppPreferences: ObservableObject {
             ?? HistoryRetentionPolicy.maximumCaptures
         maximumCount = min(max(1, storedMaximumCount), HistoryRetentionPolicy.maximumCaptures)
         maximumAgeDays = defaults.object(forKey: Key.maximumAgeDays) as? Int ?? 30
+        let storedHistoryFraction = (defaults.object(forKey: Key.historyFraction) as? NSNumber)?.doubleValue
+            ?? ShelfSplitLayout.defaultHistoryFraction
+        historyFraction = ShelfSplitLayout.historyFraction(storedHistoryFraction)
+        let storedTransparency = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
+            ?? Self.defaultShelfTransparency
+        shelfTransparency = Self.clampedTransparency(storedTransparency)
         defaults.set(maximumCount, forKey: Key.maximumCount)
+        defaults.set(historyFraction, forKey: Key.historyFraction)
+        defaults.set(shelfTransparency, forKey: Key.shelfTransparency)
     }
 
     var hotKey: HotKey {
@@ -84,6 +115,11 @@ final class AppPreferences: ObservableObject {
             return codex.appendingPathComponent("Screenshots", isDirectory: true)
         }
         return home.appendingPathComponent("Pictures/ScreenshotApp", isDirectory: true)
+    }
+
+    private static func clampedTransparency(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultShelfTransparency }
+        return min(max(value, 0), 1)
     }
 
     static let keyCodes: [String: UInt32] = [

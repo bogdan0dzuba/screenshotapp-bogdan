@@ -293,6 +293,48 @@ private func checkEditorZoomPolicy() throws {
     )
 }
 
+private func checkShelfSplitLayout() throws {
+    try expect(
+        ShelfSplitLayout.historyFraction(-1) == ShelfSplitLayout.minimumHistoryFraction,
+        "history fraction clamps below its minimum"
+    )
+    try expect(
+        ShelfSplitLayout.historyFraction(2) == ShelfSplitLayout.maximumHistoryFraction,
+        "history fraction clamps above its maximum"
+    )
+
+    let regular = ShelfSplitLayout.heights(
+        availableHeight: 500,
+        historyFraction: ShelfSplitLayout.defaultHistoryFraction
+    )
+    try expect(
+        regular.latest + regular.history + ShelfSplitLayout.dividerHeight == 500,
+        "shelf split consumes all available height"
+    )
+    try expect(regular.history == 147, "default shelf split gives history thirty percent of content")
+
+    let constrained = ShelfSplitLayout.heights(availableHeight: 230, historyFraction: 1)
+    try expect(constrained.latest == 140, "small shelf preserves the latest-capture minimum")
+    try expect(constrained.history == 80, "small shelf preserves the history minimum")
+
+    try expect(
+        abs(ShelfSplitLayout.historyFraction(
+            startingFraction: 0.3,
+            verticalTranslation: -50,
+            availableHeight: 500
+        ) - 0.4) < 0.000_001,
+        "dragging the divider upward gives more room to history"
+    )
+    try expect(
+        abs(ShelfSplitLayout.historyFraction(
+            startingFraction: 0.3,
+            verticalTranslation: 50,
+            availableHeight: 500
+        ) - 0.2) < 0.000_001,
+        "dragging the divider downward gives more room to the preview"
+    )
+}
+
 private func makeGrayImage(width: Int, height: Int, pixels: [UInt8]) throws -> CGImage {
     guard let provider = CGDataProvider(data: Data(pixels) as CFData),
           let image = CGImage(
@@ -761,6 +803,7 @@ do {
     try checkCaptureProcessOutcome()
     try checkEditorCanvasLayout()
     try checkEditorZoomPolicy()
+    try checkShelfSplitLayout()
     try checkScrollStitching()
     try checkAnnotationRendering()
     try checkShelfState()
