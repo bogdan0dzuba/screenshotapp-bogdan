@@ -23,6 +23,9 @@ require_text "$README" "Apple Silicon" "README does not mention Apple Silicon su
 require_text "$README" "Intel" "README does not mention Intel support"
 require_text "$README" "docs/assets/shelf-demo.gif" "README has no shelf demonstration"
 require_text "$README" "docs/assets/hotkey-demo.gif" "README has no hotkey demonstration"
+require_text "$README" "docs/assets/editor-demo.gif" "README has no editor demonstration"
+require_text "$README" "docs/assets/scroll-capture-demo.gif" "README has no scrolling-capture demonstration"
+require_text "$README" "v0.5.2" "README does not name the current public version"
 require_text "$README" "Запись экрана" "README does not explain the screen-recording permission"
 require_text "$README" "Gatekeeper" "README does not explain the unsigned preview limitation"
 require_text "$README" "приложение и доступный заголовок окна" \
@@ -34,6 +37,14 @@ require_text "$README" "CaptureMetadataChecks.sh" "README omits the metadata ver
 }
 [[ -s docs/assets/hotkey-demo.gif ]] || {
   echo "RepositoryPublicationChecks: hotkey demonstration asset is missing" >&2
+  exit 1
+}
+[[ -s docs/assets/editor-demo.gif ]] || {
+  echo "RepositoryPublicationChecks: editor demonstration asset is missing" >&2
+  exit 1
+}
+[[ -s docs/assets/scroll-capture-demo.gif ]] || {
+  echo "RepositoryPublicationChecks: scrolling-capture demonstration asset is missing" >&2
   exit 1
 }
 
