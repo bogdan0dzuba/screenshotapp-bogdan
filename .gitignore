@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.codex/
+dist/
+
+*.cer
+*.key
+*.mobileprovision
+*.p12
+*.pem

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <defs>
+    <radialGradient id="background" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#273654"/>
+      <stop offset="1" stop-color="#0d111b"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="0.45" stop-color="#a8c4ff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#1d2940" stop-opacity="0.34"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-50%" width="160%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="8"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .45 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="800" height="450" fill="url(#background)"/>
+  <g filter="url(#shadow)">
+    <rect x="285" y="187" width="230" height="76" rx="38" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.38" stroke-width="2"/>
+    <path d="M330 235 L348 217 L366 235" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="393" y1="204" x2="393" y2="246" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+    <text x="424" y="237" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="38" font-weight="700">12</text>
+  </g>
+</svg>

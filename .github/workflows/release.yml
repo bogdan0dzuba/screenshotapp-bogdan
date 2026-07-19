@@ -1,0 +1,55 @@
+name: Проверка и релиз
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  universal-macos:
+    runs-on: macos-15-intel
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v6
+
+      - name: Проверить тестируемое ядро
+        run: swift run --disable-sandbox CoreChecks
+
+      - name: Проверить интерфейсные контракты
+        run: |
+          bash Tests/CaptureMetadataChecks.sh
+          bash Tests/ShelfPanelInteractionChecks.sh
+          bash Tests/EditorWindowInteractionChecks.sh
+          bash Tests/SettingsInteractionChecks.sh
+          bash Tests/ReleasePackagingChecks.sh
+          bash Tests/RepositoryPublicationChecks.sh
+
+      - name: Определить версию
+        shell: bash
+        run: |
+          version="0.5.0"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Собрать Universal-приложение
+        run: ./script/build_release.sh
+
+      - name: Опубликовать GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/ScreenshotApp-Bogdan-macOS-Universal.zip \
+            dist/ScreenshotApp-Bogdan-macOS-Universal.zip.sha256 \
+            --verify-tag \
+            --title "ScreenshotApp Bogdan $GITHUB_REF_NAME" \
+            --generate-notes
