@@ -24,4 +24,9 @@ require_text .github/workflows/release.yml 'SPARKLE_PRIVATE_KEY' \
   "release workflow does not use the protected Sparkle key"
 require_text .github/workflows/release.yml 'appcast.xml' "release workflow does not publish an appcast"
 
+if /usr/bin/grep -Fq -- 'runs-on: macos-15-intel' .github/workflows/release.yml; then
+  echo "UpdaterIntegrationChecks: Intel runner reproducibly kills CoreChecks after linking" >&2
+  exit 1
+fi
+
 echo "UpdaterIntegrationChecks: OK"
