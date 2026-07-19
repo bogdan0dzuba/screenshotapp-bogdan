@@ -4,7 +4,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.2-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.2)
+[![Версия](https://img.shields.io/badge/версия-v0.5.3-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.3)
 [![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 ## Как это выглядит
