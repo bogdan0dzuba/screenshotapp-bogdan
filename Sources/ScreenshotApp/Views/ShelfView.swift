@@ -131,7 +131,7 @@ struct ShelfView: View {
             Color.clear
             Capsule()
                 .fill(.secondary.opacity(0.52))
-                .frame(width: 38, height: 3)
+                .frame(width: 48, height: 4)
         }
         .frame(maxWidth: .infinity)
         .frame(height: ShelfSplitLayout.dividerHeight)
@@ -178,7 +178,7 @@ struct ShelfView: View {
         HStack(spacing: 5) {
             shelfToggleButton
             Image(systemName: "rectangle.stack.fill")
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.secondary)
             Text("\(history.items.count)")
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .monospacedDigit()
@@ -232,15 +232,10 @@ struct ShelfView: View {
                 quickButton("Распознать текст", "text.viewfinder") { model.recognizeText(item) }
                 quickButton("Закрепить", "pin") { model.pin(item) }
             }
-            Text(model.statusMessage)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(height: 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, ShelfMetrics.expandedContentPadding)
-        .padding(.vertical, 6)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
         .frame(minHeight: 140, maxHeight: .infinity)
         .layoutPriority(1)
     }
@@ -252,7 +247,7 @@ struct ShelfView: View {
 
     private func historyList(selected: CaptureItem) -> some View {
         ScrollView {
-            LazyVStack(spacing: 6) {
+            LazyVStack(spacing: 8) {
                 ForEach(history.items) { item in
                     CaptureRow(item: item, isSelected: item.id == selected.id) {
                         model.select(item)
@@ -560,7 +555,7 @@ private struct CaptureRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 CapturePreview(url: item.imageURL)
-                    .frame(width: 78, height: 48)
+                    .frame(width: 104, height: 66)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(CaptureTimestampFormatter.historyTitle(for: item.createdAt))
                         .font(.caption.weight(.semibold))
@@ -580,8 +575,11 @@ private struct CaptureRow: View {
                 Image(systemName: "line.3.horizontal")
                     .foregroundStyle(.tertiary)
             }
-            .padding(5)
-            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+            .padding(6)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.035),
+                in: RoundedRectangle(cornerRadius: 9)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

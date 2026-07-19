@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** Сделать хоткей читаемым, добавить сохраняемый вертикальный разделитель предпросмотра и истории и регулируемую прозрачность стандартного Liquid Glass.
+**Goal:** Сделать хоткей читаемым, добавить сохраняемый вертикальный разделитель предпросмотра и истории, крупные строки истории и регулируемую прозрачность стандартного Liquid Glass.
 
 **Architecture:** Чистая `ShelfSplitLayout` рассчитывает две высоты и ограничивает долю истории. `AppPreferences` хранит долю и прозрачность в `UserDefaults`; `ShelfView` только отображает рассчитанную геометрию и обновляет долю жестом, а `SettingsView` меняет прозрачность ползунком.
 
@@ -169,11 +169,11 @@ Expected: `SettingsInteractionChecks: OK`.
 - Modify: `.github/workflows/release.yml`
 
 **Interfaces:**
-- Produces: local app version 0.5.1 build 15 and a fresh local ZIP.
+- Produces: local app version 0.5.2 build 16 and a fresh local ZIP.
 
 - [x] **Step 1: Record the shipped behavior and bump version**
 
-Add a `0.5.1` changelog section and set local/release defaults to version `0.5.1`, build `15`; set the workflow fallback version to `0.5.1`.
+Add changelog sections and set local/release defaults to version `0.5.2`, build `16`; set the workflow fallback version to `0.5.2`.
 
 - [x] **Step 2: Run the full installed-app verification**
 
@@ -183,7 +183,7 @@ Expected: all checks end in `OK`, codesign verification succeeds, and `Screensho
 - [x] **Step 3: Verify artifacts**
 
 Run: `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '/Users/bogdandzuba/Applications/ScreenshotApp Bogdan.app/Contents/Info.plist'`
-Expected: `0.5.1`.
+Expected: `0.5.2`.
 
 Run: `/usr/bin/codesign --verify --deep --strict '/Users/bogdandzuba/Applications/ScreenshotApp Bogdan.app'`
 Expected: exit 0.
@@ -194,3 +194,33 @@ Run: `git diff --check`
 Expected: exit 0.
 
 Commit the implementation and verification updates with a concise Russian message.
+
+### Task 5: Feedback on history density and capture source
+
+**Files:**
+- Modify: `Sources/ScreenshotCore/Models/CaptureSource.swift`
+- Modify: `Sources/ScreenshotApp/Services/CaptureSourceProvider.swift`
+- Modify: `Sources/ScreenshotApp/Views/ShelfView.swift`
+- Modify: `Sources/ScreenshotApp/Support/AppPreferences.swift`
+- Test: `Tests/CoreChecks/main.swift`
+- Test: `Tests/CaptureMetadataChecks.sh`
+- Test: `Tests/ShelfPanelInteractionChecks.sh`
+
+**Interfaces:**
+- Produces: 42% migrated default history fraction, 104 × 66 pt history previews and computer-use overlay fallback.
+
+- [x] **Step 1: Add failing checks for the four reported regressions**
+
+Require no visible status row, larger thumbnails and divider, a secondary header icon, default migration and `Computer Use Controls` fallback.
+
+- [x] **Step 2: Verify RED**
+
+Run the three shell checks and `CoreChecks`; expect the new contracts to fail before implementation.
+
+- [x] **Step 3: Implement the minimal UI and metadata changes**
+
+Remove only the shelf status text, enlarge history rows, migrate the untouched 30% default to 42%, and skip the transient ChatGPT controls window when another visible application exists.
+
+- [x] **Step 4: Verify GREEN and package 0.5.2**
+
+Run targeted checks, `CoreChecks`, `./script/build_and_run.sh --verify`, and the tracked Universal release build.

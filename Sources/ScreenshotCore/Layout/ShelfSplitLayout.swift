@@ -3,7 +3,7 @@ import CoreGraphics
 public enum ShelfSplitLayout {
     public static let minimumHistoryFraction = 0.2
     public static let maximumHistoryFraction = 0.65
-    public static let defaultHistoryFraction = 0.3
+    public static let defaultHistoryFraction = 0.42
     public static let dividerHeight: CGFloat = 10
     public static let latestMinimumHeight: CGFloat = 140
     public static let historyMinimumHeight: CGFloat = 80

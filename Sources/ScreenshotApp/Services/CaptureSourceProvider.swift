@@ -10,17 +10,16 @@ enum CaptureSourceProvider {
         if let application = NSWorkspace.shared.frontmostApplication,
            application.processIdentifier != ownProcessID,
            let source = source(for: application, windows: windows) {
+            if source.isComputerUseControlWindow {
+                return fallbackSource(
+                    excludingProcessIDs: [ownProcessID, application.processIdentifier],
+                    windows: windows
+                ) ?? source.withoutWindowTitle
+            }
             return source
         }
 
-        guard let window = windows.first(where: {
-            processID(in: $0) != ownProcessID && layer(in: $0) == 0
-        }),
-        let processID = processID(in: window),
-        let application = NSRunningApplication(processIdentifier: processID) else {
-            return nil
-        }
-        return source(for: application, windows: windows)
+        return fallbackSource(excludingProcessIDs: [ownProcessID], windows: windows)
     }
 
     private static func source(
@@ -41,6 +40,21 @@ enum CaptureSourceProvider {
     private static func visibleWindows() -> [[String: Any]] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         return CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+
+    private static func fallbackSource(
+        excludingProcessIDs: Set<pid_t>,
+        windows: [[String: Any]]
+    ) -> CaptureSource? {
+        for window in windows where layer(in: window) == 0 {
+            guard let processID = processID(in: window),
+                  !excludingProcessIDs.contains(processID),
+                  let application = NSRunningApplication(processIdentifier: processID),
+                  let source = source(for: application, windows: windows),
+                  !source.isComputerUseControlWindow else { continue }
+            return source
+        }
+        return nil
     }
 
     private static func processID(in window: [String: Any]) -> pid_t? {

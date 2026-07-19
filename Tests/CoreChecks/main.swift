@@ -66,6 +66,18 @@ private func checkModels() throws {
         CaptureSource(applicationName: "Telegram", windowTitle: nil).displayLabel == "Telegram",
         "application name is used when the window title is unavailable"
     )
+    let computerUseControls = CaptureSource(
+        applicationName: "ChatGPT",
+        windowTitle: "Computer Use Controls"
+    )
+    try expect(
+        computerUseControls.isComputerUseControlWindow,
+        "ChatGPT computer-use controls are recognized as a transient capture overlay"
+    )
+    try expect(
+        computerUseControls.withoutWindowTitle.displayLabel == "ChatGPT",
+        "computer-use fallback does not preserve a misleading controls title"
+    )
 
     let now = Date(timeIntervalSince1970: 2_000_000)
     let fixtures = (0..<3).map { offset in
@@ -311,7 +323,10 @@ private func checkShelfSplitLayout() throws {
         regular.latest + regular.history + ShelfSplitLayout.dividerHeight == 500,
         "shelf split consumes all available height"
     )
-    try expect(regular.history == 147, "default shelf split gives history thirty percent of content")
+    try expect(
+        abs(regular.history - 205.8) < 0.000_001,
+        "default shelf split gives history forty-two percent of content"
+    )
 
     let constrained = ShelfSplitLayout.heights(availableHeight: 230, historyFraction: 1)
     try expect(constrained.latest == 140, "small shelf preserves the latest-capture minimum")

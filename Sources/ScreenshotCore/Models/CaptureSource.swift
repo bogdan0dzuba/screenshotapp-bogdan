@@ -22,6 +22,22 @@ public struct CaptureSource: Codable, Equatable, Sendable {
         return applicationName
     }
 
+    public var isComputerUseControlWindow: Bool {
+        guard applicationName.range(
+            of: "ChatGPT",
+            options: [.caseInsensitive, .diacriticInsensitive]
+        ) != nil,
+        let windowTitle else { return false }
+        return windowTitle.range(
+            of: "Computer Use Controls",
+            options: [.caseInsensitive, .diacriticInsensitive]
+        ) != nil
+    }
+
+    public var withoutWindowTitle: CaptureSource {
+        CaptureSource(applicationName: applicationName, windowTitle: nil)
+    }
+
     private var normalizedWindowTitle: String? {
         guard var title = windowTitle.flatMap(Self.cleanedOptional) else { return nil }
         let suffixes = [" - ", " — ", " – ", " | "]

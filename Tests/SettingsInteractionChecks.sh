@@ -28,6 +28,8 @@ require_text "$APP_MODEL" "HotKeyDisplayFormatter.readable" "readable shortcut f
 require_text "$PREFERENCES" 'static let historyFraction = "historyFraction"' "history split does not have a persistent preference key"
 require_text "$PREFERENCES" 'static let shelfTransparency = "shelfTransparency"' "shelf transparency does not have a persistent preference key"
 require_text "$PREFERENCES" "ShelfSplitLayout.defaultHistoryFraction" "history split has no stable default"
+require_text "$PREFERENCES" 'static let historyFractionRevision = "historyFractionRevision"' "history split default cannot migrate without overwriting a custom size"
+require_text "$PREFERENCES" "currentHistoryFractionRevision" "history split migration has no revision marker"
 require_text "$PREFERENCES" "Self.defaultShelfTransparency" "shelf transparency has no stable default"
 require_text "$SETTINGS_VIEW" 'Section("Внешний вид")' "shelf appearance settings are missing"
 require_text "$SETTINGS_VIEW" 'Slider(value: $preferences.shelfTransparency, in: 0...1)' "shelf transparency cannot be adjusted continuously"

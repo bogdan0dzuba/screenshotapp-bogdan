@@ -37,6 +37,9 @@ reject_text() {
 require_file "$PROVIDER" "capture source provider is missing"
 require_text "$PROVIDER" "NSWorkspace.shared.frontmostApplication" "provider does not read the active application"
 require_text "$PROVIDER" "CGWindowListCopyWindowInfo" "provider does not read the available window title"
+require_text "$PROVIDER" "source.isComputerUseControlWindow" "provider mistakes ChatGPT computer-use controls for captured content"
+require_text "$PROVIDER" "fallbackSource(excludingProcessIDs:" "provider does not look behind the transient computer-use controls window"
+require_text "$PROVIDER" "source.withoutWindowTitle" "provider keeps a misleading Computer Use Controls title when no underlying window exists"
 reject_text "$PROVIDER" "NSAppleScript" "provider would request Automation access"
 reject_text "$PROVIDER" "AXUIElement" "provider would request Accessibility access"
 

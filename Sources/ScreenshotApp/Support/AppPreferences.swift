@@ -24,6 +24,7 @@ final class AppPreferences: ObservableObject {
         static let maximumCount = "maximumCount"
         static let maximumAgeDays = "maximumAgeDays"
         static let historyFraction = "historyFraction"
+        static let historyFractionRevision = "historyFractionRevision"
         static let shelfTransparency = "shelfTransparency"
     }
 
@@ -68,6 +69,7 @@ final class AppPreferences: ObservableObject {
     let availableLetters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
     private let defaults: UserDefaults
     static let defaultShelfTransparency = 0.35
+    static let currentHistoryFractionRevision = 2
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -85,13 +87,21 @@ final class AppPreferences: ObservableObject {
         maximumCount = min(max(1, storedMaximumCount), HistoryRetentionPolicy.maximumCaptures)
         maximumAgeDays = defaults.object(forKey: Key.maximumAgeDays) as? Int ?? 30
         let storedHistoryFraction = (defaults.object(forKey: Key.historyFraction) as? NSNumber)?.doubleValue
-            ?? ShelfSplitLayout.defaultHistoryFraction
-        historyFraction = ShelfSplitLayout.historyFraction(storedHistoryFraction)
+        let storedHistoryFractionRevision = defaults.integer(forKey: Key.historyFractionRevision)
+        if storedHistoryFractionRevision < Self.currentHistoryFractionRevision,
+           storedHistoryFraction == nil || abs((storedHistoryFraction ?? 0.3) - 0.3) < 0.000_001 {
+            historyFraction = ShelfSplitLayout.defaultHistoryFraction
+        } else {
+            historyFraction = ShelfSplitLayout.historyFraction(
+                storedHistoryFraction ?? ShelfSplitLayout.defaultHistoryFraction
+            )
+        }
         let storedTransparency = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
             ?? Self.defaultShelfTransparency
         shelfTransparency = Self.clampedTransparency(storedTransparency)
         defaults.set(maximumCount, forKey: Key.maximumCount)
         defaults.set(historyFraction, forKey: Key.historyFraction)
+        defaults.set(Self.currentHistoryFractionRevision, forKey: Key.historyFractionRevision)
         defaults.set(shelfTransparency, forKey: Key.shelfTransparency)
     }
 
