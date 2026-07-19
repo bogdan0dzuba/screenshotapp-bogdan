@@ -42,10 +42,21 @@ GENERATE_APPCAST="$SPARKLE_BIN_DIR/generate_appcast"
 
 SPARKLE_TEMP_DIR="$(mktemp -d /private/tmp/ScreenshotAppSparkleRelease.XXXXXX)"
 SPARKLE_PRIVATE_FILE="$SPARKLE_TEMP_DIR/private-key"
+APPCAST_INPUT_DIR="$SPARKLE_TEMP_DIR/appcast-input"
+/bin/mkdir -p "$APPCAST_INPUT_DIR"
+/bin/cp "$DIST_DIR/ScreenshotApp-Bogdan-macOS-Universal.zip" "$APPCAST_INPUT_DIR/"
 cleanup() {
   if [[ -n "${SPARKLE_PRIVATE_FILE:-}" && -f "$SPARKLE_PRIVATE_FILE" ]]; then
     unlink "$SPARKLE_PRIVATE_FILE"
   fi
+  for temporary_file in \
+    "$APPCAST_INPUT_DIR/ScreenshotApp-Bogdan-macOS-Universal.zip" \
+    "$APPCAST_INPUT_DIR/appcast.xml"; do
+    if [[ -f "$temporary_file" ]]; then
+      unlink "$temporary_file"
+    fi
+  done
+  rmdir "$APPCAST_INPUT_DIR" 2>/dev/null || true
   rmdir "$SPARKLE_TEMP_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -56,9 +67,10 @@ trap cleanup EXIT
   --download-url-prefix "https://github.com/$REPOSITORY/releases/download/$TAG/" \
   --link "https://github.com/$REPOSITORY" \
   --maximum-versions 1 \
-  "$DIST_DIR"
+  "$APPCAST_INPUT_DIR"
 unlink "$SPARKLE_PRIVATE_FILE"
 SPARKLE_PRIVATE_FILE=""
+/bin/cp "$APPCAST_INPUT_DIR/appcast.xml" "$DIST_DIR/appcast.xml"
 
 /usr/bin/grep -Fq 'sparkle:edSignature' "$DIST_DIR/appcast.xml" || {
   echo "Подписанный appcast.xml не создан." >&2
