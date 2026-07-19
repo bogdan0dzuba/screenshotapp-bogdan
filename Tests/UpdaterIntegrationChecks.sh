@@ -20,6 +20,10 @@ require_text Sources/ScreenshotApp/Views/SettingsView.swift 'Автоматич�
   "automatic update setting is missing"
 require_text script/build_release.sh 'SUFeedURL' "release bundle has no appcast URL"
 require_text script/build_release.sh 'SUPublicEDKey' "release bundle has no EdDSA public key"
+require_text script/build_release.sh 'SUAutomaticallyUpdate' \
+  "release bundle does not enable automatic downloads by default"
+require_text script/build_and_run.sh 'SUAutomaticallyUpdate' \
+  "local bundle does not enable automatic downloads by default"
 require_text script/publish_release.sh 'generate_keys' \
   "local release script does not read the Sparkle key from macOS Keychain"
 require_text script/publish_release.sh 'generate_appcast' \

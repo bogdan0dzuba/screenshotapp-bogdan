@@ -18,6 +18,6 @@ struct MenuBarView: View {
         Button("Проверить обновления…") { updateService.checkForUpdates() }
         SettingsLink { Text("Настройки…") }
         Divider()
-        Button("Завершить ScreenshotApp") { NSApp.terminate(nil) }
+        Button("Завершить \(AppIdentity.displayName)") { NSApp.terminate(nil) }
     }
 }

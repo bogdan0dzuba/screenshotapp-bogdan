@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Использование: ./script/publish_release.sh 0.5.3" >&2
+  echo "Использование: ./script/publish_release.sh 0.5.4" >&2
   exit 2
 fi
 
@@ -83,7 +83,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
     exit 1
   }
 else
-  git tag -a "$TAG" -m "ScreenshotApp Bogdan $TAG"
+  git tag -a "$TAG" -m "Богдан Скриншот $TAG"
 fi
 git push origin "$TAG"
 
@@ -99,7 +99,7 @@ else
   gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
     --repo "$REPOSITORY" \
     --verify-tag \
-    --title "ScreenshotApp Bogdan $TAG" \
+    --title "Богдан Скриншот $TAG" \
     --generate-notes
 fi
 

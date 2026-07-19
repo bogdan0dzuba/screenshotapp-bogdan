@@ -92,6 +92,16 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("О приложении") {
+                LabeledContent("Название") {
+                    Text(AppIdentity.displayName)
+                }
+                LabeledContent("Установленная версия") {
+                    Text(AppIdentity.versionDescription)
+                        .font(.body.monospacedDigit())
+                        .textSelection(.enabled)
+                }
+            }
             Section("Внешний вид") {
                 LabeledContent("Прозрачность полки") {
                     HStack(spacing: 10) {

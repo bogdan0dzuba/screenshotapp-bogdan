@@ -1,10 +1,14 @@
-# ScreenshotApp Bogdan
+# Богдан Скриншот
+
+<p align="center">
+  <img src="Assets/AppIcon.png" width="128" alt="Иконка Богдан Скриншот">
+</p>
 
 Нативный скриншотер для macOS на русском языке: быстрый захват, редактор, прокручиваемые снимки и полка последних 20 кадров. Без аккаунта, облака и отправки изображений на сервер.
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.3-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.3)
+[![Версия](https://img.shields.io/badge/версия-v0.5.4-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.4)
 [![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 ## Как это выглядит
@@ -61,7 +65,7 @@
 ## Скачать и установить
 
 1. [Скачайте последнюю Universal-версию](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip).
-2. Распакуйте ZIP и перенесите `ScreenshotApp Bogdan.app` в папку «Программы».
+2. Распакуйте ZIP и перенесите `Богдан Скриншот.app` в папку «Программы».
 3. При первом запуске нажмите правой кнопкой по приложению и выберите «Открыть».
 4. Разрешите «Запись экрана», затем перезапустите приложение.
 
@@ -98,7 +102,7 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.3`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle, скачивает архив из GitHub Releases, сверяет подпись и предлагает перезапуск. Автоматическую проверку и скачивание можно отключить в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.4`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle, скачивает архив из GitHub Releases, сверяет подпись и предлагает перезапуск. Автоматическая проверка и скачивание включены по умолчанию; их можно отключить в настройках.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
 

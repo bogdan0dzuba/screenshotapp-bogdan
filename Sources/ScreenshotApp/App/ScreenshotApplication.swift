@@ -5,7 +5,7 @@ struct ScreenshotApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra("ScreenshotApp Bogdan", systemImage: "camera.viewfinder") {
+        MenuBarExtra(AppIdentity.displayName, systemImage: "camera.viewfinder") {
             MenuBarView(model: appDelegate.model, updateService: appDelegate.updateService)
         }
 

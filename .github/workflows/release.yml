@@ -24,6 +24,7 @@ jobs:
           bash Tests/ShelfPanelInteractionChecks.sh
           bash Tests/EditorWindowInteractionChecks.sh
           bash Tests/SettingsInteractionChecks.sh
+          bash Tests/AppIdentityChecks.sh
           bash Tests/ReleasePackagingChecks.sh
           bash Tests/RepositoryPublicationChecks.sh
           bash Tests/UpdaterIntegrationChecks.sh
@@ -31,7 +32,7 @@ jobs:
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.3"
+          version="0.5.4"
           echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 

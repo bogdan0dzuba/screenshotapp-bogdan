@@ -3,6 +3,7 @@ set -euo pipefail
 
 RELEASE_SCRIPT="${1:-script/build_release.sh}"
 ARCHIVE="${2:-}"
+EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.4}"
 
 require_script() {
   local pattern="$1"
@@ -31,7 +32,7 @@ if [[ -n "$ARCHIVE" ]]; then
   trap '/bin/rm -rf -- "$VERIFY_DIR"' EXIT
   /usr/bin/ditto -x -k "$ARCHIVE" "$VERIFY_DIR"
 
-  APP_PATH="$VERIFY_DIR/ScreenshotApp Bogdan.app"
+  APP_PATH="$VERIFY_DIR/Богдан Скриншот.app"
   BINARY="$APP_PATH/Contents/MacOS/ScreenshotApp"
   [[ -x "$BINARY" ]] || {
     echo "ReleasePackagingChecks: app executable is missing" >&2
@@ -44,6 +45,18 @@ if [[ -n "$ARCHIVE" ]]; then
     exit 1
   }
   /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+  [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw "$APP_PATH/Contents/Info.plist")" == "Богдан Скриншот" ]] || {
+    echo "ReleasePackagingChecks: public app name is incorrect" >&2
+    exit 1
+  }
+  [[ "$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$APP_PATH/Contents/Info.plist")" == "$EXPECTED_VERSION" ]] || {
+    echo "ReleasePackagingChecks: public app version is incorrect" >&2
+    exit 1
+  }
+  [[ -s "$APP_PATH/Contents/Resources/AppIcon.icns" ]] || {
+    echo "ReleasePackagingChecks: app icon is missing from the bundle" >&2
+    exit 1
+  }
 fi
 
 echo "ReleasePackagingChecks: OK"

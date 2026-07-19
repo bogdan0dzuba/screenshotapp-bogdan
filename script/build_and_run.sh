@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-run}"
 BUILD_PRODUCT="ScreenshotApp"
-APP_NAME="ScreenshotApp Bogdan"
+APP_NAME="Богдан Скриншот"
 PROCESS_NAME="ScreenshotApp"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
@@ -16,11 +16,14 @@ APP_BUNDLE="$STAGE_DIR/$APP_NAME.app"
 DELIVERABLE_ZIP="$DIST_DIR/ScreenshotApp-Bogdan-macOS.zip"
 INSTALL_DIR="${SCREENSHOT_APP_INSTALL_DIR:-$HOME/Applications}"
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME.app"
+LEGACY_INSTALLED_APP="$INSTALL_DIR/ScreenshotApp Bogdan.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$BUILD_PRODUCT"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+APP_ICON_SOURCE="$ROOT_DIR/Assets/AppIcon.icns"
 BUILD_CACHE_DIR="/private/tmp/ScreenshotApp-Bogdan-build-cache-$(id -u)"
 
 prepare_swift_environment() {
@@ -86,6 +89,7 @@ bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
+bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 BUILD_BINARY="$(swift build --disable-sandbox --show-bin-path)/$BUILD_PRODUCT"
 
 rm -rf "$STAGE_DIR"
@@ -94,8 +98,9 @@ rm -rf "$DIST_DIR/ScreenshotApp.app"
 rm -f "$DIST_DIR/ScreenshotApp-macOS.zip"
 mkdir -p "$DIST_DIR"
 mkdir -p "$INSTALL_DIR"
-mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS"
+mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
+cp "$APP_ICON_SOURCE" "$APP_RESOURCES/AppIcon.icns"
 chmod +x "$APP_BINARY"
 BUILD_BIN_DIR="$(dirname "$BUILD_BINARY")"
 /usr/bin/ditto "$BUILD_BIN_DIR/Sparkle.framework" "$APP_FRAMEWORKS/Sparkle.framework"
@@ -115,10 +120,12 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.3</string>
+  <string>0.5.4</string>
   <key>CFBundleVersion</key>
-  <string>17</string>
+  <string>18</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
@@ -136,6 +143,8 @@ cat >"$INFO_PLIST" <<PLIST
   <key>SUEnableAutomaticChecks</key>
   <true/>
   <key>SUAllowsAutomaticUpdates</key>
+  <true/>
+  <key>SUAutomaticallyUpdate</key>
   <true/>
 </dict>
 </plist>
@@ -158,6 +167,9 @@ rm -rf "$INSTALLED_APP"
 /usr/bin/ditto --norsrc "$APP_BUNDLE" "$INSTALLED_APP"
 /usr/bin/xattr -cr "$INSTALLED_APP"
 /usr/bin/codesign --verify --deep --strict "$INSTALLED_APP"
+if [[ "$LEGACY_INSTALLED_APP" != "$INSTALLED_APP" && -d "$LEGACY_INSTALLED_APP" ]]; then
+  /bin/rm -rf -- "$LEGACY_INSTALLED_APP"
+fi
 rm -f "$DELIVERABLE_ZIP"
 /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE" "$DELIVERABLE_ZIP"
 
