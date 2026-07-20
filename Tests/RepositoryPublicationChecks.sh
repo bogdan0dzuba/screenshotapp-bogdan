@@ -26,7 +26,7 @@ require_text "$README" "docs/assets/shelf-demo.gif" "README has no shelf demonst
 require_text "$README" "docs/assets/hotkey-demo.gif" "README has no hotkey demonstration"
 require_text "$README" "docs/assets/editor-demo.gif" "README has no editor demonstration"
 require_text "$README" "docs/assets/scroll-capture-demo.gif" "README has no scrolling-capture demonstration"
-require_text "$README" "v0.5.4" "README does not name the current public version"
+require_text "$README" "v0.5.5" "README does not name the current public version"
 require_text "$README" "Запись экрана" "README does not explain the screen-recording permission"
 require_text "$README" "Gatekeeper" "README does not explain the unsigned preview limitation"
 require_text "$README" "приложение и доступный заголовок окна" \

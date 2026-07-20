@@ -46,6 +46,7 @@ private struct PinnedImageView: View {
                 Slider(value: $opacity, in: 0.25...1)
                     .frame(width: 80)
             }
+            .help("Прозрачность закрепленного снимка")
             .padding(8)
             .background(.ultraThinMaterial, in: Capsule())
             .padding(10)

@@ -179,6 +179,7 @@ struct ShelfView: View {
             shelfToggleButton
             Image(systemName: "rectangle.stack.fill")
                 .foregroundStyle(Color.secondary)
+                .help("История снимков")
             Text("\(history.items.count)")
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .monospacedDigit()
@@ -195,7 +196,7 @@ struct ShelfView: View {
             .buttonStyle(.plain)
             .shelfToggleHitTarget()
             .shelfFirstClickEnabled()
-            .help("Настройки")
+            .help("Открыть настройки")
             Menu {
                 Button("На 30 секунд") { model.hideShelf(for: 30) }
                 Button("На 5 минут") { model.hideShelf(for: 300) }
@@ -205,10 +206,10 @@ struct ShelfView: View {
             }
             .menuStyle(.borderlessButton)
             .frame(width: 26)
-            .help("Временно скрыть")
+            .help("Временно скрыть полку")
             Button { model.clearHistory() } label: { Image(systemName: "trash") }
                 .buttonStyle(.plain)
-                .help("Очистить историю")
+                .help("Очистить историю и переместить файлы в Корзину")
                 .disabled(history.items.isEmpty)
         }
         .padding(.horizontal, 6)
@@ -226,11 +227,11 @@ struct ShelfView: View {
                 .contextMenu { contextMenu(for: item) }
 
             HStack(spacing: 4) {
-                quickButton("Копировать", "doc.on.doc") { model.copy(item) }
-                quickButton("Сохранить", "square.and.arrow.down") { model.saveAs(item) }
-                quickButton("Править", "pencil.tip.crop.circle") { model.edit(item) }
+                quickButton("Скопировать снимок", "doc.on.doc") { model.copy(item) }
+                quickButton("Сохранить снимок", "square.and.arrow.down") { model.saveAs(item) }
+                quickButton("Редактировать снимок", "pencil.tip.crop.circle") { model.edit(item) }
                 quickButton("Распознать текст", "text.viewfinder") { model.recognizeText(item) }
-                quickButton("Закрепить", "pin") { model.pin(item) }
+                quickButton("Закрепить поверх окон", "pin") { model.pin(item) }
             }
         }
         .padding(.horizontal, ShelfMetrics.expandedContentPadding)
@@ -275,21 +276,32 @@ struct ShelfView: View {
 
     private var captureBar: some View {
         HStack(spacing: 5) {
-            captureButton("С прокруткой", "arrow.up.and.down.text.horizontal") {
-                model.startScrollingCapture()
-            }
-            captureButton("Обычная область", "viewfinder") { model.capture(.area) }
-            captureButton("Окно", "macwindow") { model.capture(.window) }
-            captureButton("Экран", "rectangle.inset.filled") { model.capture(.fullScreen) }
+            scrollCaptureButton
+            captureButton("Снимок обычной области", "viewfinder") { model.capture(.area) }
+            captureButton("Снимок окна", "macwindow") { model.capture(.window) }
+            captureButton("Снимок всего экрана", "rectangle.inset.filled") { model.capture(.fullScreen) }
             Spacer()
-            captureButton("Открыть папку", "folder") {
+            captureButton("Открыть папку со снимками", "folder") {
                 NSWorkspace.shared.open(model.preferences.captureFolder)
             }
         }
-        .buttonStyle(.borderless)
         .controlSize(.small)
         .padding(.horizontal, ShelfMetrics.expandedContentPadding)
         .frame(height: ShelfMetrics.captureBarHeight)
+    }
+
+    private var scrollCaptureButton: some View {
+        Button {
+            model.startScrollingCapture()
+        } label: {
+            Label("Снимок с прокруткой", systemImage: "arrow.up.and.down.text.horizontal")
+                .labelStyle(.titleAndIcon)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .buttonStyle(.borderedProminent)
+        .help("Выделить область и сделать длинный снимок прокруткой")
+        .accessibilityLabel("Снимок с прокруткой")
     }
 
     private func quickButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
@@ -315,6 +327,7 @@ struct ShelfView: View {
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.borderless)
         .help(title)
         .accessibilityLabel(title)
     }

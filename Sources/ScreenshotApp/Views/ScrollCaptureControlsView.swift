@@ -18,6 +18,8 @@ struct ScrollCaptureControlsView: View {
                 Spacer()
                 Button(action: controller.cancel) { Image(systemName: "xmark") }
                     .buttonStyle(.plain)
+                    .help("Отменить снимок с прокруткой")
+                    .accessibilityLabel("Отменить снимок с прокруткой")
             }
             Text(controller.message)
                 .font(.caption)
