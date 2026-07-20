@@ -5,10 +5,22 @@ import ScreenshotCore
 
 @MainActor
 final class AppModel: ObservableObject {
+    private struct CaptureRequest {
+        var id: UUID
+        var sequence: UInt64
+        var source: CaptureSource?
+        var temporaryURL: URL
+    }
+
+    private struct PendingCaptureResult {
+        var sequence: UInt64
+        var item: CaptureItem
+    }
+
     @Published var shelfState: ShelfState = .expanded
     @Published var selectedItemID: UUID?
     @Published var statusMessage = "Готово к захвату"
-    @Published var isBusy = false
+    @Published private(set) var isBusy = false
 
     let preferences: AppPreferences
     let history: HistoryStore
@@ -21,6 +33,12 @@ final class AppModel: ObservableObject {
     var regionSelectionController: RegionSelectionController?
     var scrollCaptureController: ScrollCaptureController?
     private var pendingCaptureSource: CaptureSource?
+    private var pendingScrollCaptureID: UUID?
+    private var pendingScrollCaptureSequence: UInt64?
+    private var captureActivity = CaptureActivityState()
+    private var pendingCaptureResults: [PendingCaptureResult] = []
+    private var nextCaptureSequence: UInt64 = 0
+    private var latestPresentedCaptureSequence: UInt64 = 0
 
     init() {
         let preferences = AppPreferences()
@@ -42,6 +60,11 @@ final class AppModel: ObservableObject {
     func start() {
         registerHotKey()
         shelfController?.updatePresentation()
+        do {
+            try history.reload()
+        } catch {
+            statusMessage = error.localizedDescription
+        }
     }
 
     func registerHotKey() {
@@ -64,37 +87,108 @@ final class AppModel: ObservableObject {
     }
 
     func capture(_ mode: CaptureMode) {
-        guard !isBusy else { return }
+        switch mode {
+        case .area:
+            captureArea()
+        case .window, .fullScreen:
+            captureWithSystemUI(mode)
+        }
+    }
+
+    private func captureArea() {
+        guard let regionSelectionController else {
+            CaptureTelemetry.logger.error("area_capture_unavailable")
+            return
+        }
+        guard let request = prepareCaptureRequest() else {
+            CaptureTelemetry.logger.notice("area_capture_ignored_busy")
+            return
+        }
+        CaptureTelemetry.logger.info("area_capture_started")
+        let captureService = captureService
+        let captureTask = Task { @MainActor in
+            let rect = try await regionSelectionController.selectRegion()
+            try await Task.detached(priority: .userInitiated) {
+                try await captureService.capture(rect: rect, to: request.temporaryURL)
+            }.value
+        }
+        finishCapture(request, task: captureTask)
+    }
+
+    private func captureWithSystemUI(_ mode: CaptureMode) {
+        guard let request = prepareCaptureRequest() else { return }
+        let captureService = captureService
+        let captureTask = Task.detached(priority: .userInitiated) {
+            try await captureService.capture(mode, to: request.temporaryURL)
+        }
+        finishCapture(request, task: captureTask)
+    }
+
+    private func prepareCaptureRequest() -> CaptureRequest? {
+        let id = UUID()
+        guard captureActivity.beginCapture(id: id) else { return nil }
+        let sequence = makeCaptureSequence()
+        updateBusyState()
         let source = CaptureSourceProvider.current()
-        isBusy = true
-        statusMessage = "Выберите область…"
         shelfController?.suspend()
+        statusMessage = "Выберите область…"
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreenshotApp-\(UUID().uuidString).png")
+        return CaptureRequest(id: id, sequence: sequence, source: source, temporaryURL: temporaryURL)
+    }
 
+    private func finishCapture(
+        _ request: CaptureRequest,
+        task captureTask: Task<Void, Error>
+    ) {
         Task {
-            defer {
-                isBusy = false
-                try? FileManager.default.removeItem(at: temporaryURL)
-            }
+            defer { try? FileManager.default.removeItem(at: request.temporaryURL) }
+            let capturedAt: Date
             do {
-                try await captureService.capture(mode, to: temporaryURL)
-                let item = try history.importCapture(at: temporaryURL, source: source)
-                received(item)
+                try await captureTask.value
+                capturedAt = Date()
+                guard beginImport(for: request.id) else { return }
             } catch CaptureError.cancelled {
+                cancelCapture(id: request.id)
                 statusMessage = "Захват отменен"
-                shelfController?.resume()
+                resumeShelfAndPresentPendingResults()
+                return
             } catch {
-                shelfController?.resume()
+                cancelCapture(id: request.id)
+                resumeShelfAndPresentPendingResults()
                 present(error)
+                return
+            }
+
+            do {
+                let item = try await history.importCapture(
+                    at: request.temporaryURL,
+                    source: request.source,
+                    capturedAt: capturedAt
+                )
+                finishImport(id: request.id)
+                enqueueCaptureResult(item, sequence: request.sequence)
+            } catch {
+                finishImport(id: request.id)
+                if captureActivity.canPresentCaptureResults {
+                    shelfController?.resume()
+                    present(error)
+                } else {
+                    statusMessage = error.localizedDescription
+                }
             }
         }
     }
 
     func startScrollingCapture() {
-        guard !isBusy, let regionSelectionController else { return }
+        guard let regionSelectionController else { return }
+        let captureID = UUID()
+        guard captureActivity.beginCapture(id: captureID) else { return }
+        let captureSequence = makeCaptureSequence()
+        updateBusyState()
+        pendingScrollCaptureID = captureID
+        pendingScrollCaptureSequence = captureSequence
         pendingCaptureSource = CaptureSourceProvider.current()
-        isBusy = true
         shelfController?.suspend()
         Task {
             do {
@@ -111,12 +205,16 @@ final class AppModel: ObservableObject {
                 statusMessage = "Прокрутите содержимое и добавьте кадр"
             } catch CaptureError.cancelled {
                 pendingCaptureSource = nil
-                isBusy = false
-                shelfController?.resume()
+                pendingScrollCaptureID = nil
+                pendingScrollCaptureSequence = nil
+                cancelCapture(id: captureID)
+                resumeShelfAndPresentPendingResults()
             } catch {
                 pendingCaptureSource = nil
-                isBusy = false
-                shelfController?.resume()
+                pendingScrollCaptureID = nil
+                pendingScrollCaptureSequence = nil
+                cancelCapture(id: captureID)
+                resumeShelfAndPresentPendingResults()
                 present(error)
             }
         }
@@ -130,30 +228,50 @@ final class AppModel: ObservableObject {
         }
         statusMessage = "Снимок сохранен"
         shelfController?.resume()
-        shelfController?.updatePresentation()
         if completionPolicy.opensEditor {
             edit(item)
         }
     }
 
     func finishScrolling(with image: CGImage) {
-        defer { pendingCaptureSource = nil }
-        do {
-            let item = try history.importImage(image, source: pendingCaptureSource)
-            isBusy = false
-            received(item)
-        } catch {
-            isBusy = false
-            shelfController?.resume()
-            present(error)
+        guard let captureID = pendingScrollCaptureID,
+              let captureSequence = pendingScrollCaptureSequence else { return }
+        pendingScrollCaptureID = nil
+        pendingScrollCaptureSequence = nil
+        let source = pendingCaptureSource
+        pendingCaptureSource = nil
+        let capturedAt = Date()
+        guard beginImport(for: captureID) else { return }
+        Task {
+            do {
+                let item = try await history.importImage(
+                    image,
+                    source: source,
+                    capturedAt: capturedAt
+                )
+                finishImport(id: captureID)
+                enqueueCaptureResult(item, sequence: captureSequence)
+            } catch {
+                finishImport(id: captureID)
+                if captureActivity.canPresentCaptureResults {
+                    shelfController?.resume()
+                    present(error)
+                } else {
+                    statusMessage = error.localizedDescription
+                }
+            }
         }
     }
 
     func cancelScrolling() {
+        if let captureID = pendingScrollCaptureID {
+            cancelCapture(id: captureID)
+        }
+        pendingScrollCaptureID = nil
+        pendingScrollCaptureSequence = nil
         pendingCaptureSource = nil
-        isBusy = false
         statusMessage = "Прокручиваемый захват отменен"
-        shelfController?.resume()
+        resumeShelfAndPresentPendingResults()
     }
 
     func select(_ item: CaptureItem) {
@@ -263,6 +381,17 @@ final class AppModel: ObservableObject {
     }
 
     func chooseCaptureFolder() {
+        let storageChangeID = UUID()
+        guard captureActivity.beginStorageChange(id: storageChangeID) else {
+            statusMessage = "Дождитесь завершения захвата и сохранения снимка"
+            return
+        }
+        updateBusyState()
+        defer {
+            captureActivity.finishStorageChange(id: storageChangeID)
+            updateBusyState()
+            presentPendingCaptureResultsIfPossible()
+        }
         let panel = NSOpenPanel()
         panel.title = "Выберите папку для снимков"
         panel.canChooseFiles = false
@@ -271,7 +400,7 @@ final class AppModel: ObservableObject {
         panel.directoryURL = preferences.captureFolder
         guard panel.runModal() == .OK, let url = panel.url else { return }
         preferences.captureFolder = url
-        reloadPreferences()
+        applyPreferences()
     }
 
     func copyFolderPath() {
@@ -280,6 +409,14 @@ final class AppModel: ObservableObject {
     }
 
     func reloadPreferences() {
+        guard captureActivity.canChangeStorage else {
+            statusMessage = "Дождитесь завершения захвата и сохранения снимка"
+            return
+        }
+        applyPreferences()
+    }
+
+    private func applyPreferences() {
         do {
             try history.update(
                 folderURL: preferences.captureFolder,
@@ -288,6 +425,55 @@ final class AppModel: ObservableObject {
             )
             registerHotKey()
         } catch { present(error) }
+    }
+
+    private func beginImport(for captureID: UUID) -> Bool {
+        guard captureActivity.finishCaptureAndBeginImport(id: captureID) else { return false }
+        updateBusyState()
+        presentPendingCaptureResultsIfPossible()
+        return true
+    }
+
+    private func cancelCapture(id: UUID) {
+        captureActivity.cancelCapture(id: id)
+        updateBusyState()
+    }
+
+    private func finishImport(id: UUID) {
+        captureActivity.finishImport(id: id)
+        updateBusyState()
+    }
+
+    private func updateBusyState() {
+        isBusy = !captureActivity.canStartCapture
+    }
+
+    private func makeCaptureSequence() -> UInt64 {
+        nextCaptureSequence &+= 1
+        return nextCaptureSequence
+    }
+
+    private func enqueueCaptureResult(_ item: CaptureItem, sequence: UInt64) {
+        pendingCaptureResults.append(PendingCaptureResult(sequence: sequence, item: item))
+        presentPendingCaptureResultsIfPossible()
+    }
+
+    private func resumeShelfAndPresentPendingResults() {
+        guard captureActivity.canPresentCaptureResults else { return }
+        shelfController?.resume()
+        presentPendingCaptureResultsIfPossible()
+    }
+
+    private func presentPendingCaptureResultsIfPossible() {
+        guard captureActivity.canPresentCaptureResults, !pendingCaptureResults.isEmpty else { return }
+        let pending = pendingCaptureResults
+        pendingCaptureResults.removeAll()
+        guard let sequence = CaptureResultOrder.sequenceToPresent(
+            pending: pending.map(\.sequence),
+            latestPresented: latestPresentedCaptureSequence
+        ), let result = pending.first(where: { $0.sequence == sequence }) else { return }
+        latestPresentedCaptureSequence = sequence
+        received(result.item)
     }
 
     func openScreenRecordingSettings() {

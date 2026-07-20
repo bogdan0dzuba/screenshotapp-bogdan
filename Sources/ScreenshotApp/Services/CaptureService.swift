@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
+import ImageIO
+import ScreenCaptureKit
 import ScreenshotCore
+import UniformTypeIdentifiers
 
 enum CaptureMode {
     case area
@@ -22,7 +25,7 @@ enum CaptureError: LocalizedError {
     }
 }
 
-final class CaptureService {
+struct CaptureService: Sendable {
     func capture(_ mode: CaptureMode, to outputURL: URL) async throws {
         var arguments = ["-x"]
         switch mode {
@@ -36,8 +39,34 @@ final class CaptureService {
 
     func capture(rect: CGRect, to outputURL: URL) async throws {
         let integral = rect.integral
+        if #available(macOS 15.2, *) {
+            do {
+                try? FileManager.default.removeItem(at: outputURL)
+                let image = try await SCScreenshotManager.captureImage(in: integral)
+                try Self.writePNG(image, to: outputURL)
+                CaptureTelemetry.logger.info("native_region_capture_finished")
+                return
+            } catch {
+                CaptureTelemetry.logger.notice("native_region_capture_fallback")
+            }
+        }
         let region = "\(Int(integral.minX)),\(Int(integral.minY)),\(Int(integral.width)),\(Int(integral.height))"
         try await runScreencapture(arguments: ["-x", "-R", region, outputURL.path], outputURL: outputURL)
+    }
+
+    private static func writePNG(_ image: CGImage, to outputURL: URL) throws {
+        guard let destination = CGImageDestinationCreateWithURL(
+            outputURL as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw CaptureError.missingOutput
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw CaptureError.missingOutput
+        }
     }
 
     private func runScreencapture(arguments: [String], outputURL: URL) async throws {
@@ -62,6 +91,7 @@ final class CaptureService {
             }
             do {
                 try process.run()
+                CaptureTelemetry.logger.info("capture_process_started")
             } catch {
                 continuation.resume(throwing: error)
             }

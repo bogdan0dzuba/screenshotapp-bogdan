@@ -80,7 +80,9 @@ final class EditorSession: ObservableObject {
             size: CGSize(width: cgImage.width, height: cgImage.height)
         )
         self.nextCounter = (document.annotations.compactMap(\.counter).max() ?? 0) + 1
-        refreshPreview()
+        if !document.annotations.isEmpty {
+            refreshPreview()
+        }
     }
 
     var imageSize: CGSize { CGSize(width: baseImage.width, height: baseImage.height) }

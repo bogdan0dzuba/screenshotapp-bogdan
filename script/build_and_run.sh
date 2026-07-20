@@ -86,6 +86,7 @@ cd "$ROOT_DIR"
 prepare_swift_environment
 swift build --disable-sandbox
 bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
+bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
@@ -123,9 +124,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.5</string>
+  <string>0.5.6</string>
   <key>CFBundleVersion</key>
-  <string>19</string>
+  <string>20</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>

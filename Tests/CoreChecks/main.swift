@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import ImageIO
 import ScreenshotCore
 import UniformTypeIdentifiers
 
@@ -16,6 +17,11 @@ private enum CheckFailure: Error, CustomStringConvertible {
 
 private func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() { throw CheckFailure.failed(message) }
+}
+
+private func requireValue<Value>(_ value: Value?, _ message: String) throws -> Value {
+    guard let value else { throw CheckFailure.failed(message) }
+    return value
 }
 
 private func checkModels() throws {
@@ -213,6 +219,168 @@ private func checkCaptureProcessOutcome() throws {
     try expect(
         CaptureProcessOutcome.resolve(terminationStatus: 2, outputExists: false) == .failed(2),
         "a real screencapture failure remains visible"
+    )
+}
+
+private func checkImageFileMetadata() throws {
+    let fixtureURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScreenshotApp-metadata-\(UUID().uuidString).png")
+    defer { try? FileManager.default.removeItem(at: fixtureURL) }
+
+    guard let context = CGContext(
+        data: nil,
+        width: 13,
+        height: 7,
+        bitsPerComponent: 8,
+        bytesPerRow: 13 * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ), let image = context.makeImage(),
+       let destination = CGImageDestinationCreateWithURL(
+           fixtureURL as CFURL,
+           UTType.png.identifier as CFString,
+           1,
+           nil
+       ) else {
+        throw CheckFailure.failed("image metadata fixture can be created")
+    }
+    CGImageDestinationAddImage(destination, image, nil)
+    try expect(CGImageDestinationFinalize(destination), "image metadata fixture can be written")
+
+    try expect(
+        ImageFileMetadata.dimensions(at: fixtureURL) == PixelDimensions(width: 13, height: 7),
+        "PNG dimensions are read without rendering the full image"
+    )
+    try expect(
+        ImageFileMetadata.dimensions(at: fixtureURL.appendingPathExtension("missing")) == nil,
+        "missing images do not produce fake dimensions"
+    )
+}
+
+private func checkCaptureActivityState() throws {
+    let firstCaptureID = UUID()
+    let secondCaptureID = UUID()
+    let storageChangeID = UUID()
+    var state = CaptureActivityState()
+
+    try expect(state.canStartCapture, "capture starts while the app is idle")
+    try expect(state.canChangeStorage, "storage can change while the app is idle")
+    try expect(
+        state.beginCapture(id: firstCaptureID),
+        "the first interactive capture starts"
+    )
+    try expect(!state.beginCapture(id: secondCaptureID), "a second selector cannot overlap the first")
+    try expect(!state.canChangeStorage, "storage cannot change during interactive capture")
+    try expect(
+        state.finishCaptureAndBeginImport(id: firstCaptureID),
+        "a finished interactive capture becomes a background import"
+    )
+    try expect(state.canStartCapture, "a new hotkey is accepted while the previous image imports")
+    try expect(!state.canChangeStorage, "storage stays fixed while an import is pending")
+    try expect(state.beginCapture(id: secondCaptureID), "the second capture starts during the first import")
+    try expect(
+        state.finishImport(id: firstCaptureID),
+        "the first import can finish while the second selector is active"
+    )
+    try expect(state.isCaptureActive, "finishing an old import never clears a newer active capture")
+    try expect(!state.canStartCapture, "the active second selector still blocks a third capture")
+    try expect(state.cancelCapture(id: secondCaptureID), "the matching capture can be cancelled")
+    try expect(state.canChangeStorage, "storage unlocks after capture and imports finish")
+    try expect(
+        state.beginStorageChange(id: storageChangeID),
+        "the storage picker owns the foreground operation"
+    )
+    try expect(!state.canStartCapture, "the hotkey waits while the storage picker is open")
+    try expect(
+        state.finishStorageChange(id: storageChangeID),
+        "closing the storage picker returns the app to idle"
+    )
+}
+
+private func checkCaptureResultOrder() throws {
+    try expect(
+        CaptureResultOrder.sequenceToPresent(pending: [1, 2], latestPresented: 0) == 2,
+        "when imports finish together only the newest capture is presented"
+    )
+    try expect(
+        CaptureResultOrder.sequenceToPresent(pending: [1], latestPresented: 2) == nil,
+        "a late older import never replaces a newer presented capture"
+    )
+    try expect(
+        CaptureResultOrder.sequenceToPresent(pending: [4, 3], latestPresented: 2) == 4,
+        "presentation order follows capture order instead of import completion order"
+    )
+}
+
+private func checkImageLoadRequestState() throws {
+    let request = ImageLoadRequestKey(path: "/tmp/long.png", maximumPixelSize: 4_096, revision: 1)
+    let replacement = ImageLoadRequestKey(path: "/tmp/new.png", maximumPixelSize: 320, revision: 1)
+    var state = ImageLoadRequestState()
+
+    let firstToken = try requireValue(state.begin(request), "first image request starts")
+    let retryToken = try requireValue(state.begin(request), "an in-flight request can be superseded")
+    try expect(firstToken != retryToken, "a retry receives a new generation")
+    try expect(
+        !state.finish(firstToken, request: request),
+        "a stale decode cannot replace a newer request"
+    )
+    try expect(state.fail(retryToken), "a failed current decode clears the active request")
+    let afterFailure = try requireValue(state.begin(request), "the same request retries after failure")
+    try expect(state.finish(afterFailure, request: request), "the successful retry is committed")
+    try expect(state.begin(request) == nil, "an already loaded request is not decoded again")
+    let replacementToken = try requireValue(state.begin(replacement), "a changed request starts")
+    try expect(state.cancel(replacementToken), "cancelling the current request clears it")
+    try expect(state.begin(replacement) != nil, "the same request retries after cancellation")
+}
+
+private func checkShelfPreviewDecodePolicy() throws {
+    let viewport = CanvasSize(width: 380, height: 400)
+    let longImage = PixelDimensions(width: 1_440, height: 100_000)
+    let initial = ShelfPreviewDecodePolicy.plan(
+        image: longImage,
+        viewport: viewport,
+        zoomScale: 1,
+        backingScale: 2
+    )
+    let zoomed = ShelfPreviewDecodePolicy.plan(
+        image: longImage,
+        viewport: viewport,
+        zoomScale: 64,
+        backingScale: 2
+    )
+    let nearbyInitialZoom = ShelfPreviewDecodePolicy.plan(
+        image: longImage,
+        viewport: viewport,
+        zoomScale: 1.1,
+        backingScale: 2
+    )
+
+    try expect(
+        zoomed.maximumPixelSize > initial.maximumPixelSize,
+        "pinch zoom progressively requests a sharper long screenshot"
+    )
+    try expect(
+        nearbyInitialZoom.maximumPixelSize == initial.maximumPixelSize,
+        "small zoom changes inside one resolution step do not trigger another decode"
+    )
+    try expect(
+        zoomed.estimatedDimensions.width >= 450,
+        "an extreme vertical screenshot keeps a readable short edge at maximum zoom"
+    )
+    try expect(
+        zoomed.estimatedPixelCount <= ShelfPreviewDecodePolicy.maximumDecodedPixels,
+        "an extreme vertical screenshot stays inside the decoded-pixel budget"
+    )
+
+    let square = ShelfPreviewDecodePolicy.plan(
+        image: PixelDimensions(width: 20_000, height: 20_000),
+        viewport: viewport,
+        zoomScale: 20,
+        backingScale: 2
+    )
+    try expect(
+        square.estimatedPixelCount <= ShelfPreviewDecodePolicy.maximumDecodedPixels,
+        "a square screenshot also stays inside the decoded-pixel budget"
     )
 }
 
@@ -816,6 +984,11 @@ do {
     try checkAutomaticScrollFrameSelection()
     try checkCaptureCompletionPolicy()
     try checkCaptureProcessOutcome()
+    try checkImageFileMetadata()
+    try checkCaptureActivityState()
+    try checkCaptureResultOrder()
+    try checkImageLoadRequestState()
+    try checkShelfPreviewDecodePolicy()
     try checkEditorCanvasLayout()
     try checkEditorZoomPolicy()
     try checkShelfSplitLayout()

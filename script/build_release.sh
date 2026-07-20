@@ -5,8 +5,8 @@ BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="Богдан Скриншот"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.5}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-19}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.6}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-20}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -95,6 +95,7 @@ build_architecture() {
 cd "$ROOT_DIR"
 prepare_swift_environment
 bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
+bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 

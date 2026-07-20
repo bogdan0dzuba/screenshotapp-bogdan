@@ -3,7 +3,7 @@ import ScreenshotCore
 import SwiftUI
 
 @MainActor
-final class PinnedImageController {
+final class PinnedImageController: NSObject, NSWindowDelegate {
     private var windows: [NSWindow] = []
 
     func pin(item: CaptureItem) {
@@ -23,11 +23,17 @@ final class PinnedImageController {
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.delegate = self
         window.contentView = NSHostingView(rootView: PinnedImageView(image: image))
         window.center()
         window.makeKeyAndOrderFront(nil)
         windows.append(window)
         windows.removeAll { !$0.isVisible }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        windows.removeAll { $0 === closingWindow }
     }
 }
 

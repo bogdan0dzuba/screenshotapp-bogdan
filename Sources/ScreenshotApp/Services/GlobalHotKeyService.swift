@@ -24,6 +24,7 @@ final class GlobalHotKeyService {
             { _, _, userData in
                 guard let userData else { return noErr }
                 let service = Unmanaged<GlobalHotKeyService>.fromOpaque(userData).takeUnretainedValue()
+                CaptureTelemetry.logger.info("hotkey_received")
                 service.action?()
                 return noErr
             },
@@ -60,6 +61,7 @@ final class GlobalHotKeyService {
             &hotKeyRef
         )
         guard status == noErr else { throw RegistrationError.failed(status) }
+        CaptureTelemetry.logger.info("hotkey_registered key_code=\(hotKey.keyCode, privacy: .public)")
     }
 
     private static let signature: OSType = 0x53485346 // SHSF

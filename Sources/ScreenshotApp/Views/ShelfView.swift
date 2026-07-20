@@ -218,7 +218,7 @@ struct ShelfView: View {
 
     private func latest(_ item: CaptureItem) -> some View {
         VStack(spacing: 4) {
-            ZoomableCapturePreview(url: item.imageURL)
+            ZoomableCapturePreview(item: item, revision: history.imageRevision)
                 .id(item.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .layoutPriority(1)
@@ -250,7 +250,11 @@ struct ShelfView: View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 ForEach(history.items) { item in
-                    CaptureRow(item: item, isSelected: item.id == selected.id) {
+                    CaptureRow(
+                        item: item,
+                        isSelected: item.id == selected.id,
+                        revision: history.imageRevision
+                    ) {
                         model.select(item)
                     }
                     .onDrag { ScreenshotTransfer.itemProvider(for: item.imageURL) }
@@ -451,10 +455,12 @@ private extension View {
 
 private struct CapturePreview: View {
     let url: URL
+    let revision: Int
+    @StateObject private var loader = CaptureImageLoader()
 
     var body: some View {
         Group {
-            if let image = NSImage(contentsOf: url) {
+            if let image = loader.image {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
@@ -465,50 +471,78 @@ private struct CapturePreview: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .task(id: "\(url.path)#\(revision)") {
+            await loader.load(url: url, maximumPixelSize: 320, revision: revision)
+        }
     }
 }
 
 private struct ZoomableCapturePreview: View {
-    let image: NSImage?
+    let item: CaptureItem
+    let revision: Int
 
+    @Environment(\.displayScale) private var displayScale
+    @StateObject private var loader = CaptureImageLoader()
     @State private var zoomScale = 1.0
     @State private var magnificationStartScale: Double?
 
-    init(url: URL) {
-        image = NSImage(contentsOf: url)
-    }
-
     var body: some View {
         GeometryReader { proxy in
-            if let image {
-                let viewport = CanvasSize(
-                    width: Double(proxy.size.width),
-                    height: Double(proxy.size.height)
-                )
-                let fittedSize = EditorZoomPolicy.aspectFitSize(
-                    image: CanvasSize(width: Double(image.size.width), height: Double(image.size.height)),
-                    viewport: viewport
-                )
-                let maximumScale = EditorZoomPolicy.maximumShelfScale(
-                    fittedSize: fittedSize,
-                    viewport: viewport
-                )
-                let zoomedSize = EditorZoomPolicy.contentSize(
-                    base: fittedSize,
-                    scale: zoomScale,
-                    maximumScale: maximumScale
-                )
+            let viewport = CanvasSize(
+                width: Double(proxy.size.width),
+                height: Double(proxy.size.height)
+            )
+            let originalSize = CanvasSize(
+                width: Double(item.pixelWidth),
+                height: Double(item.pixelHeight)
+            )
+            let fittedSize = EditorZoomPolicy.aspectFitSize(
+                image: originalSize,
+                viewport: viewport
+            )
+            let maximumScale = EditorZoomPolicy.maximumShelfScale(
+                fittedSize: fittedSize,
+                viewport: viewport
+            )
+            let decodePlan = ShelfPreviewDecodePolicy.plan(
+                image: PixelDimensions(width: item.pixelWidth, height: item.pixelHeight),
+                viewport: viewport,
+                zoomScale: zoomScale,
+                backingScale: Double(displayScale)
+            )
 
-                ScrollView([.horizontal, .vertical]) {
-                    zoomableImage(
-                        image,
-                        size: zoomedSize,
-                        viewportSize: proxy.size,
+            Group {
+                if let image = loader.image {
+                    let zoomedSize = EditorZoomPolicy.contentSize(
+                        base: fittedSize,
+                        scale: zoomScale,
                         maximumScale: maximumScale
                     )
+
+                    ScrollView([.horizontal, .vertical]) {
+                        zoomableImage(
+                            image,
+                            size: zoomedSize,
+                            viewportSize: proxy.size,
+                            maximumScale: maximumScale
+                        )
+                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
-                ContentUnavailableView("Файл недоступен", systemImage: "exclamationmark.triangle")
+            }
+            .task(id: "\(item.imageURL.path)#\(revision)#\(decodePlan.maximumPixelSize)") {
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+                await loader.load(
+                    url: item.imageURL,
+                    maximumPixelSize: decodePlan.maximumPixelSize,
+                    revision: revision
+                )
             }
         }
         .background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
@@ -562,12 +596,13 @@ private struct ZoomableCapturePreview: View {
 private struct CaptureRow: View {
     let item: CaptureItem
     let isSelected: Bool
+    let revision: Int
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                CapturePreview(url: item.imageURL)
+                CapturePreview(url: item.imageURL, revision: revision)
                     .frame(width: 104, height: 66)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(CaptureTimestampFormatter.historyTitle(for: item.createdAt))

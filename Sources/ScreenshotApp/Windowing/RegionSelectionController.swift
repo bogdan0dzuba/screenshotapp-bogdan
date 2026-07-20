@@ -42,6 +42,7 @@ final class RegionSelectionController {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(overlay)
+        CaptureTelemetry.logger.info("selection_overlay_presented")
     }
 
     private func complete(localRect: CGRect) {

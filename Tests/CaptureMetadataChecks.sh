@@ -44,11 +44,15 @@ reject_text "$PROVIDER" "NSAppleScript" "provider would request Automation acces
 reject_text "$PROVIDER" "AXUIElement" "provider would request Accessibility access"
 
 require_text "$MODEL" "let source = CaptureSourceProvider.current()" "ordinary capture does not snapshot its source"
-require_text "$MODEL" "history.importCapture(at: temporaryURL, source: source)" "ordinary capture drops its source metadata"
+require_text "$MODEL" "source: request.source" "ordinary capture drops its source metadata"
 require_text "$MODEL" "pendingCaptureSource" "scroll capture has no pending source metadata"
-require_text "$MODEL" "history.importImage(image, source: pendingCaptureSource)" "scroll capture drops its source metadata"
+require_text "$MODEL" "let source = pendingCaptureSource" "scroll capture does not snapshot its source before background import"
+require_text "$MODEL" "let item = try await history.importImage(" "scroll capture does not import its finished image"
+require_text "$MODEL" "source: source," "scroll capture drops its source metadata"
+require_text "$MODEL" "capturedAt: capturedAt" "capture metadata uses import-completion time instead of capture time"
 
-require_text "$HISTORY" "func importCapture(at sourceURL: URL, source: CaptureSource? = nil)" "history import does not accept source metadata"
+require_text "$HISTORY" "func importCapture(" "history import does not accept captures"
+require_text "$HISTORY" "source: CaptureSource? = nil," "history import does not accept source metadata"
 require_text "$HISTORY" "captureSource: source" "history project does not persist source metadata"
 require_text "$HISTORY" "captureSource: document?.captureSource" "history reload does not restore source metadata"
 

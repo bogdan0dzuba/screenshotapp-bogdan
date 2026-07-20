@@ -1,12 +1,23 @@
 import AppKit
 import Combine
 import Foundation
+import ImageIO
 import ScreenshotCore
+import UniformTypeIdentifiers
+
+private enum HistoryStoreError: LocalizedError {
+    case captureFolderChanged
+
+    var errorDescription: String? {
+        "Папка снимков изменилась во время сохранения. Повторите захват."
+    }
+}
 
 @MainActor
 final class HistoryStore: ObservableObject {
     @Published private(set) var items: [CaptureItem] = []
     @Published private(set) var folderURL: URL
+    @Published private(set) var imageRevision = 0
 
     private var maximumCount: Int
     private var maximumAgeDays: Int
@@ -22,7 +33,6 @@ final class HistoryStore: ObservableObject {
         self.maximumCount = min(max(1, maximumCount), HistoryRetentionPolicy.maximumCaptures)
         self.maximumAgeDays = maximumAgeDays
         self.fileManager = fileManager
-        try? reload()
     }
 
     func update(folderURL: URL, maximumCount: Int, maximumAgeDays: Int) throws {
@@ -33,49 +43,52 @@ final class HistoryStore: ObservableObject {
     }
 
     @discardableResult
-    func importCapture(at sourceURL: URL, source: CaptureSource? = nil) throws -> CaptureItem {
-        try ensureFolder()
-        let id = UUID()
-        let date = Date()
-        let stem = Self.fileStem(date: date, id: id)
-        let originalURL = folderURL.appendingPathComponent("\(stem).source.png")
-        let imageURL = folderURL.appendingPathComponent("\(stem).png")
-        let projectURL = folderURL.appendingPathComponent("\(stem).project.json")
-
-        try fileManager.copyItem(at: sourceURL, to: originalURL)
-        try fileManager.copyItem(at: sourceURL, to: imageURL)
-        guard let image = NSImage(contentsOf: originalURL),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        let document = EditorDocument(
-            imageFileName: originalURL.lastPathComponent,
-            canvasSize: CanvasSize(width: Double(cgImage.width), height: Double(cgImage.height)),
-            annotations: [],
-            captureSource: source
-        )
-        try writeProject(document, to: projectURL)
-        let item = CaptureItem(
-            id: id,
-            createdAt: date,
-            imageURL: imageURL,
-            projectURL: projectURL,
-            pixelWidth: cgImage.width,
-            pixelHeight: cgImage.height,
-            captureSource: source
-        )
-        items.insert(item, at: 0)
-        try applyRetention(to: items)
-        return item
+    func importCapture(
+        at sourceURL: URL,
+        source: CaptureSource? = nil,
+        capturedAt: Date = Date()
+    ) async throws -> CaptureItem {
+        let targetFolder = folderURL
+        let item = try await Task.detached(priority: .userInitiated) {
+            try Self.prepareCapture(
+                at: sourceURL,
+                folderURL: targetFolder,
+                source: source,
+                capturedAt: capturedAt
+            )
+        }.value
+        return try acceptImported(item, targetFolder: targetFolder)
     }
 
     @discardableResult
-    func importImage(_ image: CGImage, source: CaptureSource? = nil) throws -> CaptureItem {
-        let temporaryURL = fileManager.temporaryDirectory
-            .appendingPathComponent("ScreenshotApp-\(UUID().uuidString).png")
-        try Self.write(image, to: temporaryURL, format: .png)
-        defer { try? fileManager.removeItem(at: temporaryURL) }
-        return try importCapture(at: temporaryURL, source: source)
+    func importImage(
+        _ image: CGImage,
+        source: CaptureSource? = nil,
+        capturedAt: Date = Date()
+    ) async throws -> CaptureItem {
+        let targetFolder = folderURL
+        let item = try await Task.detached(priority: .userInitiated) {
+            let temporaryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ScreenshotApp-\(UUID().uuidString).png")
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
+            try Self.writePNG(image, to: temporaryURL)
+            return try Self.prepareCapture(
+                at: temporaryURL,
+                folderURL: targetFolder,
+                source: source,
+                capturedAt: capturedAt
+            )
+        }.value
+        return try acceptImported(item, targetFolder: targetFolder)
+    }
+
+    private func acceptImported(_ item: CaptureItem, targetFolder: URL) throws -> CaptureItem {
+        guard targetFolder == folderURL else { throw HistoryStoreError.captureFolderChanged }
+        items.removeAll { $0.id == item.id }
+        items.insert(item, at: 0)
+        try applyRetention(to: items)
+        imageRevision &+= 1
+        return item
     }
 
     func loadDocument(for item: CaptureItem) -> EditorDocument {
@@ -94,7 +107,9 @@ final class HistoryStore: ObservableObject {
 
     func sourceImageURL(for item: CaptureItem, document: EditorDocument? = nil) -> URL {
         let document = document ?? loadDocument(for: item)
-        let candidate = folderURL.appendingPathComponent(document.imageFileName)
+        let candidate = item.imageURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(document.imageFileName)
         return fileManager.fileExists(atPath: candidate.path) ? candidate : item.imageURL
     }
 
@@ -103,12 +118,13 @@ final class HistoryStore: ObservableObject {
         if let projectURL = item.projectURL {
             try writeProject(document, to: projectURL)
         }
-        objectWillChange.send()
+        imageRevision &+= 1
     }
 
     func delete(_ item: CaptureItem) throws {
         try trashFiles(for: item)
         items.removeAll { $0.id == item.id }
+        imageRevision &+= 1
     }
 
     func clearAll() throws {
@@ -129,6 +145,7 @@ final class HistoryStore: ObservableObject {
         items.removeAll { !fileManager.fileExists(atPath: $0.imageURL.path) }
         if let firstError { throw firstError }
         items.removeAll()
+        imageRevision &+= 1
     }
 
     func reload() throws {
@@ -140,8 +157,7 @@ final class HistoryStore: ObservableObject {
             options: [.skipsHiddenFiles]
         )
         let captures = files.filter(CaptureFileClassifier.isRenderedCapture).compactMap { url -> CaptureItem? in
-            guard let image = NSImage(contentsOf: url),
-                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+            guard let dimensions = ImageFileMetadata.dimensions(at: url) else { return nil }
             let values = try? url.resourceValues(forKeys: keys)
             let date = values?.creationDate ?? values?.contentModificationDate ?? .distantPast
             let stem = url.deletingPathExtension().lastPathComponent
@@ -159,12 +175,13 @@ final class HistoryStore: ObservableObject {
                 createdAt: date,
                 imageURL: url,
                 projectURL: projectURL,
-                pixelWidth: cgImage.width,
-                pixelHeight: cgImage.height,
+                pixelWidth: dimensions.width,
+                pixelHeight: dimensions.height,
                 captureSource: document?.captureSource
             )
         }
         try applyRetention(to: captures)
+        imageRevision &+= 1
     }
 
     static func write(_ image: CGImage, to url: URL, format: AppPreferences.ImageFormat) throws {
@@ -208,12 +225,78 @@ final class HistoryStore: ObservableObject {
         try encoder.encode(document).write(to: url, options: .atomic)
     }
 
+    nonisolated private static func prepareCapture(
+        at sourceURL: URL,
+        folderURL: URL,
+        source: CaptureSource?,
+        capturedAt: Date
+    ) throws -> CaptureItem {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        let id = UUID()
+        let date = capturedAt
+        let stem = fileStem(date: date, id: id)
+        let originalURL = folderURL.appendingPathComponent("\(stem).source.png")
+        let imageURL = folderURL.appendingPathComponent("\(stem).png")
+        let projectURL = folderURL.appendingPathComponent("\(stem).project.json")
+        var createdURLs: [URL] = []
+        do {
+            try fileManager.copyItem(at: sourceURL, to: originalURL)
+            createdURLs.append(originalURL)
+            try fileManager.copyItem(at: sourceURL, to: imageURL)
+            createdURLs.append(imageURL)
+            guard let dimensions = ImageFileMetadata.dimensions(at: originalURL) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let document = EditorDocument(
+                imageFileName: originalURL.lastPathComponent,
+                canvasSize: CanvasSize(width: Double(dimensions.width), height: Double(dimensions.height)),
+                annotations: [],
+                captureSource: source
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            createdURLs.append(projectURL)
+            try encoder.encode(document).write(to: projectURL, options: .atomic)
+            return CaptureItem(
+                id: id,
+                createdAt: date,
+                imageURL: imageURL,
+                projectURL: projectURL,
+                pixelWidth: dimensions.width,
+                pixelHeight: dimensions.height,
+                captureSource: source
+            )
+        } catch {
+            for url in createdURLs.reversed() {
+                try? fileManager.removeItem(at: url)
+            }
+            throw error
+        }
+    }
+
+    nonisolated private static func writePNG(_ image: CGImage, to url: URL) throws {
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
     private func trashFiles(for item: CaptureItem) throws {
         let stem = item.imageURL.deletingPathExtension().lastPathComponent
+        let itemFolder = item.imageURL.deletingLastPathComponent()
         let urls = [
             item.imageURL,
-            item.projectURL ?? folderURL.appendingPathComponent("\(stem).project.json"),
-            folderURL.appendingPathComponent("\(stem).source.png"),
+            item.projectURL ?? itemFolder.appendingPathComponent("\(stem).project.json"),
+            itemFolder.appendingPathComponent("\(stem).source.png"),
         ]
         var firstError: Error?
         for url in CaptureFileClassifier.regularManagedCaptureFiles(in: Array(Set(urls))) {
@@ -232,14 +315,14 @@ final class HistoryStore: ObservableObject {
         try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
     }
 
-    private static func fileStem(date: Date, id: UUID) -> String {
+    nonisolated private static func fileStem(date: Date, id: UUID) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         return "Снимок \(formatter.string(from: date))-\(id.uuidString)"
     }
 
-    private static func stableUUID(for string: String) -> UUID {
+    nonisolated private static func stableUUID(for string: String) -> UUID {
         var hash = Hasher()
         hash.combine(string)
         let value = UInt64(bitPattern: Int64(hash.finalize()))
