@@ -34,5 +34,11 @@ require_text "$PREFERENCES" "Self.defaultShelfTransparency" "shelf transparency 
 require_text "$SETTINGS_VIEW" 'Section("Внешний вид")' "shelf appearance settings are missing"
 require_text "$SETTINGS_VIEW" 'Slider(value: $preferences.shelfTransparency, in: 0...1)' "shelf transparency cannot be adjusted continuously"
 require_text "$SETTINGS_VIEW" 'Int((preferences.shelfTransparency * 100).rounded())' "shelf transparency percentage is not visible"
+require_text "$PREFERENCES" 'static let automaticallyDeletesOldCaptures = "automaticallyDeletesOldCaptures"' "automatic cleanup has no persistent preference key"
+require_text "$PREFERENCES" '@Published var automaticallyDeletesOldCaptures: Bool' "automatic cleanup cannot be changed"
+require_text "$PREFERENCES" 'defaults.set(automaticallyDeletesOldCaptures' "automatic cleanup preference is not persisted"
+require_text "$SETTINGS_VIEW" '"Автоматически удалять старые снимки"' "history has no automatic cleanup toggle"
+require_text "$SETTINGS_VIEW" '.disabled(!preferences.automaticallyDeletesOldCaptures)' "retention limits remain active-looking when cleanup is disabled"
+require_text "$APP_MODEL" 'automaticCleanupEnabled: preferences.automaticallyDeletesOldCaptures' "automatic cleanup preference is not propagated to history"
 
 echo "SettingsInteractionChecks: OK"

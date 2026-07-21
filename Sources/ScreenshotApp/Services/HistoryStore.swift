@@ -13,6 +13,22 @@ private enum HistoryStoreError: LocalizedError {
     }
 }
 
+private actor CapturePreparationQueue {
+    func prepareCapture(
+        at sourceURL: URL,
+        folderURL: URL,
+        source: CaptureSource?,
+        capturedAt: Date
+    ) throws -> CaptureItem {
+        try HistoryStore.prepareCapture(
+            at: sourceURL,
+            folderURL: folderURL,
+            source: source,
+            capturedAt: capturedAt
+        )
+    }
+}
+
 @MainActor
 final class HistoryStore: ObservableObject {
     @Published private(set) var items: [CaptureItem] = []
@@ -21,24 +37,34 @@ final class HistoryStore: ObservableObject {
 
     private var maximumCount: Int
     private var maximumAgeDays: Int
+    private var automaticCleanupEnabled: Bool
     private let fileManager: FileManager
+    private let preparationQueue = CapturePreparationQueue()
 
     init(
         folderURL: URL,
         maximumCount: Int,
         maximumAgeDays: Int,
+        automaticCleanupEnabled: Bool,
         fileManager: FileManager = .default
     ) {
         self.folderURL = folderURL
         self.maximumCount = min(max(1, maximumCount), HistoryRetentionPolicy.maximumCaptures)
         self.maximumAgeDays = maximumAgeDays
+        self.automaticCleanupEnabled = automaticCleanupEnabled
         self.fileManager = fileManager
     }
 
-    func update(folderURL: URL, maximumCount: Int, maximumAgeDays: Int) throws {
+    func update(
+        folderURL: URL,
+        maximumCount: Int,
+        maximumAgeDays: Int,
+        automaticCleanupEnabled: Bool
+    ) throws {
         self.folderURL = folderURL
         self.maximumCount = min(max(1, maximumCount), HistoryRetentionPolicy.maximumCaptures)
         self.maximumAgeDays = maximumAgeDays
+        self.automaticCleanupEnabled = automaticCleanupEnabled
         try reload()
     }
 
@@ -49,14 +75,12 @@ final class HistoryStore: ObservableObject {
         capturedAt: Date = Date()
     ) async throws -> CaptureItem {
         let targetFolder = folderURL
-        let item = try await Task.detached(priority: .userInitiated) {
-            try Self.prepareCapture(
-                at: sourceURL,
-                folderURL: targetFolder,
-                source: source,
-                capturedAt: capturedAt
-            )
-        }.value
+        let item = try await preparationQueue.prepareCapture(
+            at: sourceURL,
+            folderURL: targetFolder,
+            source: source,
+            capturedAt: capturedAt
+        )
         return try acceptImported(item, targetFolder: targetFolder)
     }
 
@@ -67,18 +91,19 @@ final class HistoryStore: ObservableObject {
         capturedAt: Date = Date()
     ) async throws -> CaptureItem {
         let targetFolder = folderURL
-        let item = try await Task.detached(priority: .userInitiated) {
+        let temporaryURL = try await Task.detached(priority: .userInitiated) {
             let temporaryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ScreenshotApp-\(UUID().uuidString).png")
-            defer { try? FileManager.default.removeItem(at: temporaryURL) }
             try Self.writePNG(image, to: temporaryURL)
-            return try Self.prepareCapture(
-                at: temporaryURL,
-                folderURL: targetFolder,
-                source: source,
-                capturedAt: capturedAt
-            )
+            return temporaryURL
         }.value
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let item = try await preparationQueue.prepareCapture(
+            at: temporaryURL,
+            folderURL: targetFolder,
+            source: source,
+            capturedAt: capturedAt
+        )
         return try acceptImported(item, targetFolder: targetFolder)
     }
 
@@ -197,6 +222,7 @@ final class HistoryStore: ObservableObject {
     private func applyRetention(to candidates: [CaptureItem]) throws {
         let retained = HistoryIndex.pruned(
             items: candidates,
+            automaticCleanupEnabled: automaticCleanupEnabled,
             maximumCount: maximumCount,
             maximumAgeDays: maximumAgeDays,
             now: Date()
@@ -225,7 +251,7 @@ final class HistoryStore: ObservableObject {
         try encoder.encode(document).write(to: url, options: .atomic)
     }
 
-    nonisolated private static func prepareCapture(
+    nonisolated fileprivate static func prepareCapture(
         at sourceURL: URL,
         folderURL: URL,
         source: CaptureSource?,
@@ -235,7 +261,12 @@ final class HistoryStore: ObservableObject {
         try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
         let id = UUID()
         let date = capturedAt
-        let stem = fileStem(date: date, id: id)
+        let baseStem = CaptureFileName.baseStem(
+            for: date,
+            applicationName: source?.applicationName
+        )
+        let occupiedStems = occupiedCaptureStems(in: folderURL, fileManager: fileManager)
+        let stem = CaptureFileName.availableStem(baseStem: baseStem, occupiedStems: occupiedStems)
         let originalURL = folderURL.appendingPathComponent("\(stem).source.png")
         let imageURL = folderURL.appendingPathComponent("\(stem).png")
         let projectURL = folderURL.appendingPathComponent("\(stem).project.json")
@@ -315,11 +346,17 @@ final class HistoryStore: ObservableObject {
         try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
     }
 
-    nonisolated private static func fileStem(date: Date, id: UUID) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        return "Снимок \(formatter.string(from: date))-\(id.uuidString)"
+    nonisolated private static func occupiedCaptureStems(
+        in folderURL: URL,
+        fileManager: FileManager
+    ) -> Set<String> {
+        let names = (try? fileManager.contentsOfDirectory(atPath: folderURL.path)) ?? []
+        return Set(names.compactMap { name in
+            for suffix in [".source.png", ".project.json", ".png"] where name.hasSuffix(suffix) {
+                return String(name.dropLast(suffix.count))
+            }
+            return nil
+        })
     }
 
     nonisolated private static func stableUUID(for string: String) -> UUID {

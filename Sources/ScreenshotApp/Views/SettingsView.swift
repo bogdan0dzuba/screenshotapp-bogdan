@@ -123,12 +123,23 @@ struct SettingsView: View {
     private var historyTab: some View {
         Form {
             Section("Хранение") {
-                Stepper(
-                    "Не больше \(preferences.maximumCount) снимков",
-                    value: $preferences.maximumCount,
-                    in: 1...HistoryRetentionPolicy.maximumCaptures
+                Toggle(
+                    "Автоматически удалять старые снимки",
+                    isOn: $preferences.automaticallyDeletesOldCaptures
                 )
-                Stepper("Не старше \(preferences.maximumAgeDays) дней", value: $preferences.maximumAgeDays, in: 1...365)
+                Group {
+                    Stepper(
+                        "Не больше \(preferences.maximumCount) снимков",
+                        value: $preferences.maximumCount,
+                        in: 1...HistoryRetentionPolicy.maximumCaptures
+                    )
+                    Stepper(
+                        "Не старше \(preferences.maximumAgeDays) дней",
+                        value: $preferences.maximumAgeDays,
+                        in: 1...365
+                    )
+                }
+                .disabled(!preferences.automaticallyDeletesOldCaptures)
                 Button("Применить и перечитать папку") { model.reloadPreferences() }
             }
             Section("Очистка") {

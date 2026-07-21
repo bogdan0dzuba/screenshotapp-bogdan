@@ -23,6 +23,7 @@ final class AppPreferences: ObservableObject {
         static let closeEditorAfterCopy = "closeEditorAfterCopy"
         static let maximumCount = "maximumCount"
         static let maximumAgeDays = "maximumAgeDays"
+        static let automaticallyDeletesOldCaptures = "automaticallyDeletesOldCaptures"
         static let historyFraction = "historyFraction"
         static let historyFractionRevision = "historyFractionRevision"
         static let shelfTransparency = "shelfTransparency"
@@ -45,6 +46,9 @@ final class AppPreferences: ObservableObject {
         }
     }
     @Published var maximumAgeDays: Int { didSet { defaults.set(maximumAgeDays, forKey: Key.maximumAgeDays) } }
+    @Published var automaticallyDeletesOldCaptures: Bool {
+        didSet { defaults.set(automaticallyDeletesOldCaptures, forKey: Key.automaticallyDeletesOldCaptures) }
+    }
     @Published var historyFraction: Double {
         didSet {
             let constrained = ShelfSplitLayout.historyFraction(historyFraction)
@@ -86,6 +90,7 @@ final class AppPreferences: ObservableObject {
             ?? HistoryRetentionPolicy.maximumCaptures
         maximumCount = min(max(1, storedMaximumCount), HistoryRetentionPolicy.maximumCaptures)
         maximumAgeDays = defaults.object(forKey: Key.maximumAgeDays) as? Int ?? 30
+        automaticallyDeletesOldCaptures = defaults.object(forKey: Key.automaticallyDeletesOldCaptures) as? Bool ?? true
         let storedHistoryFraction = (defaults.object(forKey: Key.historyFraction) as? NSNumber)?.doubleValue
         let storedHistoryFractionRevision = defaults.integer(forKey: Key.historyFractionRevision)
         if storedHistoryFractionRevision < Self.currentHistoryFractionRevision,

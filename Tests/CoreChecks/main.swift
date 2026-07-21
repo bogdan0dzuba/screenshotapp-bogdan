@@ -919,6 +919,56 @@ private func checkCaptureTimestampFormatting() throws {
     )
 }
 
+private func checkCaptureFileNames() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let date = calendar.date(from: DateComponents(
+        year: 2026,
+        month: 7,
+        day: 21,
+        hour: 10,
+        minute: 32,
+        second: 48
+    ))!
+    try expect(
+        CaptureFileName.baseStem(
+            for: date,
+            applicationName: "Telegram",
+            calendar: calendar,
+            locale: Locale(identifier: "ru_RU")
+        ) == "21 июля, 10.32 - Telegram",
+        "new capture filename contains date, time, and application only"
+    )
+    try expect(
+        CaptureFileName.baseStem(
+            for: date,
+            applicationName: nil,
+            calendar: calendar,
+            locale: Locale(identifier: "ru_RU")
+        ) == "21 июля, 10.32",
+        "capture filename omits an unavailable application cleanly"
+    )
+    try expect(
+        CaptureFileName.baseStem(
+            for: date,
+            applicationName: "  Safari / Browser:*?<>|\"\n",
+            calendar: calendar,
+            locale: Locale(identifier: "ru_RU")
+        ) == "21 июля, 10.32 - Safari Browser",
+        "application names are safe and compact in local filenames"
+    )
+    try expect(
+        CaptureFileName.availableStem(
+            baseStem: "21 июля, 10.32 - Telegram",
+            occupiedStems: [
+                "21 июля, 10.32 - Telegram",
+                "21 июля, 10.32 - Telegram (2)",
+            ]
+        ) == "21 июля, 10.32 - Telegram (3)",
+        "readable filename collisions receive a visible numeric suffix"
+    )
+}
+
 private func checkHistoryRetentionPolicy() throws {
     let now = Date(timeIntervalSince1970: 2_000_000)
     let fixtures = (0..<25).map { offset in
@@ -941,6 +991,16 @@ private func checkHistoryRetentionPolicy() throws {
     try expect(HistoryRetentionPolicy.maximumCaptures == 20, "history policy keeps at most 20 captures")
     try expect(retained.count == 20, "history index enforces the 20-capture limit")
     try expect(retained.first?.id == fixtures.last?.id, "history index retains the newest capture first")
+
+    let unlimited = HistoryIndex.pruned(
+        items: fixtures,
+        automaticCleanupEnabled: false,
+        maximumCount: 3,
+        maximumAgeDays: 1,
+        now: now.addingTimeInterval(10 * 86_400)
+    )
+    try expect(unlimited.count == fixtures.count, "disabled automatic cleanup retains every capture")
+    try expect(unlimited.first?.id == fixtures.last?.id, "unlimited history remains newest-first")
 }
 
 private func checkManagedCaptureFiles() throws {
@@ -963,6 +1023,25 @@ private func checkManagedCaptureFiles() throws {
             URL(fileURLWithPath: "/tmp/Снимок 2026-07-18 12.00.00-\(captureID).project.json")
         ),
         "ScreenshotApp project is recognized"
+    )
+    let readableStem = "21 июля, 10.32 - Telegram"
+    try expect(
+        CaptureFileClassifier.isRenderedCapture(
+            URL(fileURLWithPath: "/tmp/\(readableStem).png")
+        ),
+        "new readable rendered capture is recognized"
+    )
+    try expect(
+        CaptureFileClassifier.isManagedCaptureFile(
+            URL(fileURLWithPath: "/tmp/\(readableStem).source.png")
+        ),
+        "new readable source capture is recognized"
+    )
+    try expect(
+        CaptureFileClassifier.isManagedCaptureFile(
+            URL(fileURLWithPath: "/tmp/\(readableStem).project.json")
+        ),
+        "new readable project is recognized"
     )
     try expect(
         !CaptureFileClassifier.isManagedCaptureFile(URL(fileURLWithPath: "/tmp/important.png")),
@@ -1027,6 +1106,7 @@ do {
     try checkScreenshotTransferPayloads()
     try checkShelfCopyShortcuts()
     try checkCaptureTimestampFormatting()
+    try checkCaptureFileNames()
     try checkHistoryRetentionPolicy()
     try checkManagedCaptureFiles()
     print("CoreChecks: OK")

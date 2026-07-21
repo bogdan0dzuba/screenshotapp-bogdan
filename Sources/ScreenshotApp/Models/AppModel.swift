@@ -46,7 +46,8 @@ final class AppModel: ObservableObject {
         self.history = HistoryStore(
             folderURL: preferences.captureFolder,
             maximumCount: preferences.maximumCount,
-            maximumAgeDays: preferences.maximumAgeDays
+            maximumAgeDays: preferences.maximumAgeDays,
+            automaticCleanupEnabled: preferences.automaticallyDeletesOldCaptures
         )
     }
 
@@ -417,7 +418,8 @@ final class AppModel: ObservableObject {
             try history.update(
                 folderURL: preferences.captureFolder,
                 maximumCount: preferences.maximumCount,
-                maximumAgeDays: preferences.maximumAgeDays
+                maximumAgeDays: preferences.maximumAgeDays,
+                automaticCleanupEnabled: preferences.automaticallyDeletesOldCaptures
             )
             registerHotKey()
         } catch { present(error) }
