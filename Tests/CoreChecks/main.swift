@@ -164,6 +164,43 @@ private func checkEditorState() throws {
     try expect(state.document.annotations.isEmpty, "editor deletes selected layer")
 }
 
+private func checkAnnotationDraftBuilder() throws {
+    let style = AnnotationStyle(color: .red, lineWidth: 5)
+    let start = NormalizedPoint(x: 0.25, y: 0.25)
+    let end = NormalizedPoint(x: 0.75, y: 0.75)
+    let rectangle = AnnotationDraftBuilder.make(
+        kind: .rectangle,
+        start: start,
+        end: end,
+        points: [],
+        style: style
+    )
+    try expect(
+        rectangle?.rect == NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
+        "rectangle draft is visible with the current drag geometry"
+    )
+
+    let path = [start, NormalizedPoint(x: 0.5, y: 0.5), end]
+    let pencil = AnnotationDraftBuilder.make(
+        kind: .pencil,
+        start: start,
+        end: end,
+        points: path,
+        style: style
+    )
+    try expect(pencil?.points == path, "freehand draft follows the pointer before mouse-up")
+
+    let clickOnly = AnnotationDraftBuilder.make(
+        kind: .rectangle,
+        start: start,
+        end: start,
+        points: [],
+        style: style,
+        minimumRectSize: 0.002
+    )
+    try expect(clickOnly == nil, "a click without a selected area does not create a rectangle")
+}
+
 private func checkOverlapMatching() throws {
     let first = GrayImage(
         width: 3,
@@ -1082,6 +1119,7 @@ do {
     try checkModels()
     try checkHotKeyFormatting()
     try checkEditorState()
+    try checkAnnotationDraftBuilder()
     try checkOverlapMatching()
     try checkAutomaticScrollFrameSelection()
     try checkCaptureCompletionPolicy()

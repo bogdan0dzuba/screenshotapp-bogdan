@@ -3,6 +3,7 @@ set -euo pipefail
 
 CONTROLLER="${1:-Sources/ScreenshotApp/Windowing/RegionSelectionController.swift}"
 MODEL="${2:-Sources/ScreenshotApp/Models/AppModel.swift}"
+CAPTURE_SERVICE="${3:-Sources/ScreenshotApp/Services/CaptureService.swift}"
 
 require_text() {
   local file="$1"
@@ -28,7 +29,10 @@ require_order() {
   fi
 }
 
-require_text "$CONTROLLER" "captureFrozenScreen" "region selection does not freeze the screen before activating its overlay"
+require_text "$MODEL" "case .area: captureWithSystemUI(mode)" "ordinary area capture bypasses the hover-safe native selector"
+require_text "$CAPTURE_SERVICE" 'case .area: arguments += ["-i", "-s"]' "native area capture is not interactive selection-only mode"
+require_text "$CAPTURE_SERVICE" "CaptureProcessOutcome.resolve" "native selector cancellation is not handled without a false error"
+require_text "$CONTROLLER" "captureFrozenScreen" "scrolling region selection does not freeze the first frame before activating its overlay"
 require_order \
   "$CONTROLLER" \
   "captureFrozenScreen" \
@@ -36,7 +40,6 @@ require_order \
   "selection overlay can still dismiss hover content before the screen is frozen"
 require_text "$CONTROLLER" "backdropImage:" "selection overlay does not display the frozen screen"
 require_text "$CONTROLLER" "cropFrozenScreen" "selected pixels are recaptured after hover content has disappeared"
-require_text "$MODEL" "selection.image" "ordinary area capture ignores the hover-preserving frozen pixels"
 require_text "$MODEL" "firstFrame: selection.image" "scrolling capture ignores the hover-preserving first frame"
 
 echo "HoverPreservationChecks: OK"

@@ -87,30 +87,46 @@ final class EditorSession: ObservableObject {
 
     var imageSize: CGSize { CGSize(width: baseImage.width, height: baseImage.height) }
 
+    func makeDraft(
+        start: NormalizedPoint,
+        end: NormalizedPoint,
+        points: [NormalizedPoint]
+    ) -> Annotation? {
+        makeAnnotation(start: start, end: end, points: points, minimumRectSize: 0)
+    }
+
     func add(start: NormalizedPoint, end: NormalizedPoint, points: [NormalizedPoint]) {
-        let style = AnnotationStyle(color: color, lineWidth: lineWidth, fontSize: fontSize)
-        let rect = normalizedRect(from: start, to: end)
-        let annotation: Annotation
-        switch tool {
-        case .arrow, .line:
-            annotation = Annotation(kind: tool.annotationKind, points: [start, end], style: style)
-        case .rectangle, .ellipse, .blur, .pixelate:
-            guard rect.width > 0.002, rect.height > 0.002 else { return }
-            annotation = Annotation(kind: tool.annotationKind, rect: rect, style: style)
-        case .pencil, .highlighter:
-            annotation = Annotation(
-                kind: tool.annotationKind,
-                points: points.isEmpty ? [start, end] : points,
-                style: tool == .highlighter ? AnnotationStyle(color: .yellow, lineWidth: lineWidth) : style
-            )
-        case .text:
-            annotation = Annotation(kind: .text, points: [end], text: textValue, style: style)
-        case .counter:
-            annotation = Annotation(kind: .counter, points: [end], counter: nextCounter, style: style)
-            nextCounter += 1
-        }
+        guard let annotation = makeAnnotation(
+            start: start,
+            end: end,
+            points: points,
+            minimumRectSize: 0.002
+        ) else { return }
         state.add(annotation)
+        if tool == .counter { nextCounter += 1 }
         refreshPreview()
+    }
+
+    private func makeAnnotation(
+        start: NormalizedPoint,
+        end: NormalizedPoint,
+        points: [NormalizedPoint],
+        minimumRectSize: Double
+    ) -> Annotation? {
+        let style = AnnotationStyle(color: color, lineWidth: lineWidth, fontSize: fontSize)
+        let effectiveStyle = tool == .highlighter
+            ? AnnotationStyle(color: .yellow, lineWidth: lineWidth)
+            : style
+        return AnnotationDraftBuilder.make(
+            kind: tool.annotationKind,
+            start: start,
+            end: end,
+            points: points,
+            style: effectiveStyle,
+            text: textValue,
+            counter: nextCounter,
+            minimumRectSize: minimumRectSize
+        )
     }
 
     func undo() {
@@ -166,14 +182,6 @@ final class EditorSession: ObservableObject {
         }
     }
 
-    private func normalizedRect(from start: NormalizedPoint, to end: NormalizedPoint) -> NormalizedRect {
-        NormalizedRect(
-            x: min(start.x, end.x),
-            y: min(start.y, end.y),
-            width: abs(start.x - end.x),
-            height: abs(start.y - end.y)
-        )
-    }
 }
 
 extension Color {

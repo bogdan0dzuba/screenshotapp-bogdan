@@ -5,6 +5,7 @@ struct EditorCanvasView: View {
     @ObservedObject var session: EditorSession
     @State private var gestureStart: NormalizedPoint?
     @State private var gesturePoints: [NormalizedPoint] = []
+    @State private var draftAnnotation: Annotation?
     @State private var zoomScale = 1.0
     @State private var magnificationStartScale: Double?
 
@@ -30,10 +31,18 @@ struct EditorCanvasView: View {
                         .frame(width: canvasSize.width, height: canvasSize.height)
                         .shadow(color: .black.opacity(0.24), radius: 16, y: 6)
                         .overlay {
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .gesture(drawingGesture(size: canvasSize))
+                            ZStack {
+                                if let draftAnnotation {
+                                    AnnotationDraftOverlay(
+                                        annotation: draftAnnotation,
+                                        imageSize: session.imageSize
+                                    )
+                                }
+                                Rectangle()
+                                    .fill(.clear)
+                                    .contentShape(Rectangle())
+                                    .gesture(drawingGesture(size: canvasSize))
+                            }
                         }
                         .simultaneousGesture(magnificationGesture)
                         .padding(padding)
@@ -74,13 +83,22 @@ struct EditorCanvasView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let point = normalized(value.location, size: size)
-                if gestureStart == nil { gestureStart = normalized(value.startLocation, size: size) }
-                gesturePoints.append(point)
+                if gestureStart == nil {
+                    let start = normalized(value.startLocation, size: size)
+                    gestureStart = start
+                    gesturePoints = [start]
+                }
+                if gesturePoints.last != point { gesturePoints.append(point) }
+                if let start = gestureStart {
+                    draftAnnotation = session.makeDraft(start: start, end: point, points: gesturePoints)
+                }
             }
             .onEnded { value in
                 let start = gestureStart ?? normalized(value.startLocation, size: size)
                 let end = normalized(value.location, size: size)
+                if gesturePoints.last != end { gesturePoints.append(end) }
                 session.add(start: start, end: end, points: gesturePoints)
+                draftAnnotation = nil
                 gestureStart = nil
                 gesturePoints.removeAll(keepingCapacity: true)
             }

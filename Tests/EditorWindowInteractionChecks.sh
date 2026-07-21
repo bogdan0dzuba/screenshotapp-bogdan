@@ -32,6 +32,10 @@ require_text "$EDITOR_VIEW" ".contentShape(Rectangle())" "editor tool buttons on
 require_text "$EDITOR_CANVAS" "MagnifyGesture" "editor canvas has no native trackpad pinch gesture"
 require_text "$EDITOR_CANVAS" "EditorZoomPolicy.scale" "trackpad magnification bypasses the tested zoom limits"
 require_text "$EDITOR_CANVAS" "EditorZoomPolicy.contentSize" "zoom does not resize the scrollable canvas"
+require_text "$EDITOR_CANVAS" "draftAnnotation" "editor does not keep a transient annotation while dragging"
+require_text "$EDITOR_CANVAS" "AnnotationDraftOverlay" "editor does not draw the selected tool before mouse-up"
+require_text "$EDITOR_CANVAS" "session.makeDraft" "live preview does not use the same annotation builder as the final layer"
+require_text "$EDITOR_CANVAS" "draftAnnotation = nil" "transient annotation is not cleared after committing"
 require_text "$PREFERENCES" "closeEditorAfterCopy" "close-after-copy preference is not persisted"
 require_text "$SETTINGS_VIEW" 'Toggle("Закрывать редактор после копирования"' "settings do not expose close-after-copy mode"
 

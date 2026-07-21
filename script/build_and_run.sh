@@ -125,9 +125,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.8</string>
+  <string>0.5.9</string>
   <key>CFBundleVersion</key>
-  <string>22</string>
+  <string>23</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
