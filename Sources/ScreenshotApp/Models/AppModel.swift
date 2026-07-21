@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     private var pendingCaptureResults: [PendingCaptureResult] = []
     private var nextCaptureSequence: UInt64 = 0
     private var latestPresentedCaptureSequence: UInt64 = 0
+    private var registeredHotKey: HotKey?
 
     init() {
         let preferences = AppPreferences()
@@ -69,13 +70,26 @@ final class AppModel: ObservableObject {
     }
 
     func registerHotKey() {
+        registerHotKey(preferences.hotKey)
+    }
+
+    @discardableResult
+    func registerHotKey(_ candidateHotKey: HotKey) -> Bool {
+        let previousHotKey = registeredHotKey
         do {
-            try hotKeyService.register(preferences.hotKey) { [weak self] in
+            try hotKeyService.register(candidateHotKey) { [weak self] in
                 DispatchQueue.main.async { self?.capture(.area) }
             }
-            statusMessage = "Хоткей: \(hotKeyDescription)"
+            registeredHotKey = candidateHotKey
+            preferences.setHotKey(candidateHotKey)
+            statusMessage = "Хоткей: \(HotKeyDisplayFormatter.symbolic(candidateHotKey))"
+            return true
         } catch {
-            present(error)
+            if let previousHotKey {
+                preferences.setHotKey(previousHotKey)
+            }
+            presentHotKeyRegistrationError(error)
+            return false
         }
     }
 
@@ -468,5 +482,15 @@ final class AppModel: ObservableObject {
         if alert.runModal() == .alertSecondButtonReturn {
             openScreenRecordingSettings()
         }
+    }
+
+    private func presentHotKeyRegistrationError(_ error: Error) {
+        statusMessage = error.localizedDescription
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Не удалось назначить хоткей"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "Выбрать другое сочетание")
+        alert.runModal()
     }
 }

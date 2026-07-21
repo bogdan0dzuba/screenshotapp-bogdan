@@ -146,6 +146,58 @@ private func checkHotKeyFormatting() throws {
     )
 }
 
+private enum SimulatedHotKeyRegistrationError: Error {
+    case conflict
+}
+
+private func checkHotKeyRegistrationTransaction() throws {
+    let previous = HotKey(key: "A", keyCode: 0, modifiers: [.command, .shift])
+    let candidate = HotKey(key: "S", keyCode: 1, modifiers: [.command, .shift])
+    var store = HotKeyRegistrationStore<String>()
+    var unregisteredHandles: [String] = []
+
+    store.replace(
+        with: previous,
+        register: { "previous-handle" },
+        unregister: { unregisteredHandles.append($0) }
+    )
+
+    do {
+        try store.replace(
+            with: candidate,
+            register: { throw SimulatedHotKeyRegistrationError.conflict },
+            unregister: { unregisteredHandles.append($0) }
+        )
+        throw CheckFailure.failed("conflicting hotkey registration unexpectedly succeeded")
+    } catch SimulatedHotKeyRegistrationError.conflict {
+        // Expected: the previous working registration must remain active.
+    }
+
+    try expect(store.hotKey == previous, "hotkey conflict preserves the previous shortcut")
+    try expect(store.handle == "previous-handle", "hotkey conflict preserves the previous Carbon handle")
+    try expect(unregisteredHandles.isEmpty, "previous hotkey is not removed before a candidate succeeds")
+
+    store.replace(
+        with: candidate,
+        register: { "candidate-handle" },
+        unregister: { unregisteredHandles.append($0) }
+    )
+    try expect(store.hotKey == candidate, "successful replacement activates the candidate shortcut")
+    try expect(store.handle == "candidate-handle", "successful replacement stores the candidate handle")
+    try expect(unregisteredHandles == ["previous-handle"], "successful replacement removes the previous shortcut once")
+
+    var repeatedRegistrationAttempts = 0
+    store.replace(
+        with: candidate,
+        register: {
+            repeatedRegistrationAttempts += 1
+            return "duplicate-handle"
+        },
+        unregister: { unregisteredHandles.append($0) }
+    )
+    try expect(repeatedRegistrationAttempts == 0, "reapplying the same hotkey does not conflict with itself")
+}
+
 private func checkEditorState() throws {
     var state = EditorState(document: .empty)
     let layer = Annotation.line(
@@ -1118,6 +1170,7 @@ do {
     try checkFrozenScreenCrop()
     try checkModels()
     try checkHotKeyFormatting()
+    try checkHotKeyRegistrationTransaction()
     try checkEditorState()
     try checkAnnotationDraftBuilder()
     try checkOverlapMatching()

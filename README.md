@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.11-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.11)
+[![Версия](https://img.shields.io/badge/версия-v0.5.12-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.12)
 [![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 ## Как это выглядит
@@ -21,7 +21,7 @@
 
 ### Свой хоткей
 
-Начальная комбинация - `⌘⇧A`. В настройках можно выбрать Command, Shift, Option, Control и любую английскую букву.
+Начальная комбинация - `⌘⇧A`. В настройках можно выбрать Command, Shift, Option, Control и любую английскую букву. Новое сочетание сначала проверяется macOS: при конфликте с системой или другой программой прежний рабочий хоткей сохраняется, а приложение предлагает выбрать другой.
 
 ![Настройка горячей клавиши](docs/assets/hotkey-demo.gif)
 
@@ -108,7 +108,7 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.11`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.12`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
 

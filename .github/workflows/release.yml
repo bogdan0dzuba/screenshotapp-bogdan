@@ -34,7 +34,7 @@ jobs:
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.11"
+          version="0.5.12"
           echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 

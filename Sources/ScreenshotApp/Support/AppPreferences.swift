@@ -123,6 +123,14 @@ final class AppPreferences: ObservableObject {
         )
     }
 
+    func setHotKey(_ hotKey: HotKey) {
+        hotKeyLetter = hotKey.key
+        useCommand = hotKey.modifiers.contains(.command)
+        useShift = hotKey.modifiers.contains(.shift)
+        useOption = hotKey.modifiers.contains(.option)
+        useControl = hotKey.modifiers.contains(.control)
+    }
+
     static func defaultCaptureFolder() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let codex = home.appendingPathComponent("Documents/Codex", isDirectory: true)

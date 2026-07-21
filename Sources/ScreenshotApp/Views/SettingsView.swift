@@ -5,11 +5,21 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updateService: UpdateService
     @ObservedObject private var preferences: AppPreferences
+    @State private var draftHotKeyLetter: String
+    @State private var draftUseCommand: Bool
+    @State private var draftUseShift: Bool
+    @State private var draftUseOption: Bool
+    @State private var draftUseControl: Bool
 
     init(model: AppModel, updateService: UpdateService) {
         self.model = model
         self.updateService = updateService
         _preferences = ObservedObject(wrappedValue: model.preferences)
+        _draftHotKeyLetter = State(initialValue: model.preferences.hotKeyLetter)
+        _draftUseCommand = State(initialValue: model.preferences.useCommand)
+        _draftUseShift = State(initialValue: model.preferences.useShift)
+        _draftUseOption = State(initialValue: model.preferences.useOption)
+        _draftUseControl = State(initialValue: model.preferences.useControl)
     }
 
     var body: some View {
@@ -23,6 +33,7 @@ struct SettingsView: View {
         }
         .frame(width: 560, height: 350)
         .padding()
+        .onAppear { synchronizeHotKeyDraft() }
     }
 
     private var generalTab: some View {
@@ -33,25 +44,25 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
                     GridRow {
-                        Toggle("Command (⌘)", isOn: $preferences.useCommand)
-                        Toggle("Shift (⇧)", isOn: $preferences.useShift)
+                        Toggle("Command (⌘)", isOn: $draftUseCommand)
+                        Toggle("Shift (⇧)", isOn: $draftUseShift)
                     }
                     GridRow {
-                        Toggle("Option (⌥)", isOn: $preferences.useOption)
-                        Toggle("Control (⌃)", isOn: $preferences.useControl)
+                        Toggle("Option (⌥)", isOn: $draftUseOption)
+                        Toggle("Control (⌃)", isOn: $draftUseControl)
                     }
                 }
                 .toggleStyle(.checkbox)
-                Picker("Клавиша", selection: $preferences.hotKeyLetter) {
+                Picker("Клавиша", selection: $draftHotKeyLetter) {
                     ForEach(preferences.availableLetters, id: \.self) { Text($0).tag($0) }
                 }
                 .frame(maxWidth: 220, alignment: .leading)
                 LabeledContent("Текущая комбинация") {
-                    Text(model.hotKeyReadableDescription)
+                    Text(HotKeyDisplayFormatter.readable(hotKeyDraft))
                         .fontWeight(.semibold)
                         .textSelection(.enabled)
                 }
-                Button("Применить сочетание") { model.registerHotKey() }
+                Button("Применить сочетание") { model.registerHotKey(hotKeyDraft) }
             }
             Section("Сохранение") {
                 LabeledContent("Папка") {
@@ -118,6 +129,27 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var hotKeyDraft: HotKey {
+        var modifiers: HotKeyModifiers = []
+        if draftUseCommand { modifiers.insert(.command) }
+        if draftUseShift { modifiers.insert(.shift) }
+        if draftUseOption { modifiers.insert(.option) }
+        if draftUseControl { modifiers.insert(.control) }
+        return HotKey(
+            key: draftHotKeyLetter,
+            keyCode: AppPreferences.keyCodes[draftHotKeyLetter] ?? 0,
+            modifiers: modifiers
+        )
+    }
+
+    private func synchronizeHotKeyDraft() {
+        draftHotKeyLetter = preferences.hotKeyLetter
+        draftUseCommand = preferences.useCommand
+        draftUseShift = preferences.useShift
+        draftUseOption = preferences.useOption
+        draftUseControl = preferences.useControl
     }
 
     private var historyTab: some View {
