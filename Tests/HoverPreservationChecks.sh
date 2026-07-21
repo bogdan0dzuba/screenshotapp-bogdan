@@ -29,8 +29,11 @@ require_order() {
   fi
 }
 
-require_text "$MODEL" "case .area: captureWithSystemUI(mode)" "ordinary area capture bypasses the hover-safe native selector"
-require_text "$CAPTURE_SERVICE" 'case .area: arguments += ["-i", "-s"]' "native area capture is not interactive selection-only mode"
+require_text "$MODEL" "case .area: captureArea()" "ordinary area capture still launches the legacy screencapture process"
+require_text "$MODEL" "let selection = try await regionSelectionController.selectRegion(using: captureService)" \
+  "ordinary area capture does not use the ScreenCaptureKit-backed frozen selector"
+require_text "$MODEL" "try captureService.write(selection.image, to: request.temporaryURL)" \
+  "ordinary area capture recaptures the selected pixels through a legacy API"
 require_text "$CAPTURE_SERVICE" "CaptureProcessOutcome.resolve" "native selector cancellation is not handled without a false error"
 require_text "$CONTROLLER" "captureFrozenScreen" "scrolling region selection does not freeze the first frame before activating its overlay"
 require_order \

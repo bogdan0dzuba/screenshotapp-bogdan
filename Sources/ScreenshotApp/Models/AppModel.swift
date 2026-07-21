@@ -103,10 +103,30 @@ final class AppModel: ObservableObject {
 
     func capture(_ mode: CaptureMode) {
         switch mode {
-        case .area: captureWithSystemUI(mode)
+        case .area: captureArea()
         case .window, .fullScreen:
             captureWithSystemUI(mode)
         }
+    }
+
+    private func captureArea() {
+        guard let regionSelectionController else {
+            CaptureTelemetry.logger.error("area_capture_unavailable")
+            return
+        }
+        guard let request = prepareCaptureRequest() else {
+            CaptureTelemetry.logger.notice("area_capture_ignored_busy")
+            return
+        }
+        CaptureTelemetry.logger.info("area_capture_started")
+        let captureService = captureService
+        let captureTask = Task { @MainActor in
+            let selection = try await regionSelectionController.selectRegion(using: captureService)
+            try await Task.detached(priority: .userInitiated) {
+                try captureService.write(selection.image, to: request.temporaryURL)
+            }.value
+        }
+        finishCapture(request, task: captureTask)
     }
 
     private func captureWithSystemUI(_ mode: CaptureMode) {
