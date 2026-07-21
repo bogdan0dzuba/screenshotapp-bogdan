@@ -66,6 +66,8 @@ require_view 'Text("\(history.items.count)")' "expanded header has no prominent 
 require_view '.font(.system(size: 16, weight: .bold, design: .rounded))' "expanded capture count is not prominent"
 require_view 'Text(model.hotKeyDescription)' "current capture hotkey is not shown beside the count"
 require_view '.font(.system(size: 13, weight: .semibold, design: .monospaced))' "expanded hotkey remains too small to read"
+require_view 'Text("v\(AppIdentity.versionDescription)")' "expanded shelf does not show the current app version"
+require_view '.help("Текущая версия: \(AppIdentity.versionDescription)")' "visible app version has no explanatory hover hint"
 reject_view 'Text(title).font(.system(size: 9))' "quick actions still waste screenshot space on labels"
 require_view '.labelStyle(.iconOnly)' "icon-only controls do not preserve semantic labels"
 require_view '.accessibilityLabel(title)' "quick actions lost their full accessibility names"

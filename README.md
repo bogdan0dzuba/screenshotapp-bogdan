@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.9-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.9)
+[![Версия](https://img.shields.io/badge/версия-v0.5.10-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.10)
 [![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 ## Как это выглядит
@@ -108,7 +108,7 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.9`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle, скачивает архив из GitHub Releases, сверяет подпись и предлагает перезапуск. Автоматическая проверка и скачивание включены по умолчанию; их можно отключить в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.10`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle, скачивает архив из GitHub Releases, сверяет подпись и предлагает перезапуск. Автоматическая проверка и скачивание включены по умолчанию; их можно отключить в настройках.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
 
