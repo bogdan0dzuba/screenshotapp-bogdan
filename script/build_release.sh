@@ -5,8 +5,8 @@ BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="Богдан Скриншот"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.10}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-24}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.11}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-25}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -144,8 +144,9 @@ ARCHS="$(/usr/bin/lipo -archs "$APP_BINARY")"
   "fhGTeCAerHeifyqZb9B3uETRm5mFSfIcTE8pW/HyjP0=" \
   "$INFO_PLIST"
 /usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$INFO_PLIST"
+/usr/bin/plutil -insert SUScheduledCheckInterval -integer 21600 "$INFO_PLIST"
 /usr/bin/plutil -insert SUAllowsAutomaticUpdates -bool YES "$INFO_PLIST"
-/usr/bin/plutil -insert SUAutomaticallyUpdate -bool YES "$INFO_PLIST"
+/usr/bin/plutil -insert SUAutomaticallyUpdate -bool NO "$INFO_PLIST"
 
 /usr/bin/xattr -cr "$APP_BUNDLE"
 if [[ -n "${SCREENSHOT_APP_SIGNING_IDENTITY:-}" ]]; then

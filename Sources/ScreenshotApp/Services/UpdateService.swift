@@ -1,8 +1,11 @@
+import AppKit
 import Sparkle
 
 @MainActor
 final class UpdateService: ObservableObject {
+    private let userDriverDelegate: UpdateUserDriverDelegate
     private let updaterController: SPUStandardUpdaterController
+    private var updaterStarted = false
 
     @Published var automaticallyChecksForUpdates: Bool {
         didSet {
@@ -17,17 +20,41 @@ final class UpdateService: ObservableObject {
     }
 
     init() {
+        let userDriverDelegate = UpdateUserDriverDelegate()
         let controller = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: false,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: userDriverDelegate
         )
+        self.userDriverDelegate = userDriverDelegate
         updaterController = controller
         automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
         automaticallyDownloadsUpdates = controller.updater.automaticallyDownloadsUpdates
     }
 
+    func startUpdaterAndCheckAtLaunch() {
+        guard !updaterStarted else { return }
+        updaterController.startUpdater()
+        updaterStarted = true
+
+        if automaticallyChecksForUpdates {
+            updaterController.updater.checkForUpdatesInBackground()
+        }
+    }
+
     func checkForUpdates() {
+        if !updaterStarted {
+            updaterController.startUpdater()
+            updaterStarted = true
+        }
         updaterController.checkForUpdates(nil)
+    }
+}
+
+private final class UpdateUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    func standardUserDriverWillShowModalAlert() {
+        Task { @MainActor in
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }

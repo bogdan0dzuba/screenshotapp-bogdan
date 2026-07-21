@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.regionSelectionController = RegionSelectionController()
         model.scrollCaptureController = ScrollCaptureController()
         model.start()
+        updateService.startUpdaterAndCheckAtLaunch()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
