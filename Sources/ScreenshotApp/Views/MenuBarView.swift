@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updateService: UpdateService
+    let onOpenSettings: () -> Void
 
     var body: some View {
         Button("Снять область  \(model.hotKeyDescription)") { model.capture(.area) }
@@ -16,7 +17,7 @@ struct MenuBarView: View {
         Button("Скопировать путь папки") { model.copyFolderPath() }
         Divider()
         Button("Проверить обновления…") { updateService.checkForUpdates() }
-        SettingsLink { Text("Настройки…") }
+        Button("Настройки…", action: onOpenSettings)
         Divider()
         Button("Завершить \(AppIdentity.displayName)") { NSApp.terminate(nil) }
     }

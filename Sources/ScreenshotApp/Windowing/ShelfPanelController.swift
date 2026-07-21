@@ -14,7 +14,11 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
     private var copyEventMonitor: Any?
     private var wakeTask: Task<Void, Never>?
 
-    init(model: AppModel, sizeStore: ShelfWindowSizeStore = ShelfWindowSizeStore()) {
+    init(
+        model: AppModel,
+        sizeStore: ShelfWindowSizeStore = ShelfWindowSizeStore(),
+        onOpenSettings: @escaping () -> Void
+    ) {
         self.model = model
         self.sizeStore = sizeStore
         let storedSize = sizeStore.load()
@@ -41,7 +45,9 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         panel.becomesKeyOnlyIfNeeded = true
         panel.minSize = ShelfMetrics.minimumExpandedSize
         panel.delegate = self
-        panel.contentView = ShelfHostingView(rootView: ShelfView(model: model))
+        panel.contentView = ShelfHostingView(
+            rootView: ShelfView(model: model, onOpenSettings: onOpenSettings)
+        )
         copyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   ShelfKeyboardShortcut.shouldCopy(

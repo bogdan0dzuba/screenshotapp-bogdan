@@ -88,9 +88,11 @@ swift build --disable-sandbox
 bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/HoverPreservationChecks.sh"
+bash "$ROOT_DIR/Tests/CaptureCancellationChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
+bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 BUILD_BINARY="$(swift build --disable-sandbox --show-bin-path)/$BUILD_PRODUCT"
 
@@ -125,9 +127,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.12</string>
+  <string>0.5.13</string>
   <key>CFBundleVersion</key>
-  <string>26</string>
+  <string>27</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>

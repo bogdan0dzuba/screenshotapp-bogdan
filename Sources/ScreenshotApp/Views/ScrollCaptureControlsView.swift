@@ -40,5 +40,6 @@ struct ScrollCaptureControlsView: View {
         .padding(14)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.2)))
+        .onExitCommand { controller.cancel() }
     }
 }

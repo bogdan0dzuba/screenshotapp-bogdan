@@ -24,6 +24,8 @@ final class GlobalHotKeyService {
     private var action: (() -> Void)?
     private var nextIdentifier: UInt32 = 1
 
+    var registeredHotKey: HotKey? { registration.hotKey }
+
     init() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(

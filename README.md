@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.12-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.12)
+[![Версия](https://img.shields.io/badge/версия-v0.5.13-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.13)
 [![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 ## Как это выглядит
@@ -21,7 +21,7 @@
 
 ### Свой хоткей
 
-Начальная комбинация - `⌘⇧A`. В настройках можно выбрать Command, Shift, Option, Control и любую английскую букву. Новое сочетание сначала проверяется macOS: при конфликте с системой или другой программой прежний рабочий хоткей сохраняется, а приложение предлагает выбрать другой.
+Начальная комбинация - `⌘⇧A`. Полка и строка «Активная комбинация» всегда показывают именно зарегистрированный хоткей, а отдельная строка «Новая комбинация» - еще не примененный вариант. При конфликте прежний рабочий хоткей сохраняется; если сохраненное сочетание недоступно при запуске, приложение пробует стандартное `⌘⇧A`.
 
 ![Настройка горячей клавиши](docs/assets/hotkey-demo.gif)
 
@@ -39,7 +39,7 @@
 
 ## Возможности
 
-- нативный выбор области macOS по хоткею: системный прицел, координаты/размеры и отмена через Esc без предварительного снимка всего дисплея;
+- быстрый выбор области по хоткею: прицел, размеры и надежная отмена через Esc с сохранением наведенных подсказок;
 - сохранение наведенных значений, меню и подсказок при обычном выборе области;
 - захват области, окна и всего экрана;
 - прокручиваемый захват длинных страниц вверх и вниз с автоматической склейкой;
@@ -108,7 +108,7 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.12`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.13`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
 
@@ -133,9 +133,11 @@ swift run --disable-sandbox CoreChecks
 bash Tests/CaptureMetadataChecks.sh
 bash Tests/CapturePerformanceChecks.sh
 bash Tests/HoverPreservationChecks.sh
+bash Tests/CaptureCancellationChecks.sh
 bash Tests/ShelfPanelInteractionChecks.sh
 bash Tests/EditorWindowInteractionChecks.sh
 bash Tests/SettingsInteractionChecks.sh
+bash Tests/SettingsWindowChecks.sh
 bash Tests/LocalSigningIdentityChecks.sh
 bash Tests/ReleasePackagingChecks.sh
 bash Tests/RepositoryPublicationChecks.sh

@@ -79,11 +79,19 @@ final class AppPreferences: ObservableObject {
         self.defaults = defaults
         let fallback = Self.defaultCaptureFolder()
         captureFolder = defaults.string(forKey: Key.folder).map(URL.init(fileURLWithPath:)) ?? fallback
-        hotKeyLetter = defaults.string(forKey: Key.hotKeyLetter) ?? "A"
-        useCommand = defaults.object(forKey: Key.hotKeyCommand) as? Bool ?? true
-        useShift = defaults.object(forKey: Key.hotKeyShift) as? Bool ?? true
-        useOption = defaults.object(forKey: Key.hotKeyOption) as? Bool ?? false
-        useControl = defaults.object(forKey: Key.hotKeyControl) as? Bool ?? false
+        let storedHotKeyLetter = defaults.string(forKey: Key.hotKeyLetter)?.uppercased()
+            ?? HotKey.defaultCapture.key
+        hotKeyLetter = Self.keyCodes[storedHotKeyLetter] != nil
+            ? storedHotKeyLetter
+            : HotKey.defaultCapture.key
+        useCommand = defaults.object(forKey: Key.hotKeyCommand) as? Bool
+            ?? HotKey.defaultCapture.modifiers.contains(.command)
+        useShift = defaults.object(forKey: Key.hotKeyShift) as? Bool
+            ?? HotKey.defaultCapture.modifiers.contains(.shift)
+        useOption = defaults.object(forKey: Key.hotKeyOption) as? Bool
+            ?? HotKey.defaultCapture.modifiers.contains(.option)
+        useControl = defaults.object(forKey: Key.hotKeyControl) as? Bool
+            ?? HotKey.defaultCapture.modifiers.contains(.control)
         imageFormat = ImageFormat(rawValue: defaults.string(forKey: Key.imageFormat) ?? "png") ?? .png
         closeEditorAfterCopy = defaults.object(forKey: Key.closeEditorAfterCopy) as? Bool ?? true
         let storedMaximumCount = defaults.object(forKey: Key.maximumCount) as? Int

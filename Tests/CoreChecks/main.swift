@@ -146,6 +146,35 @@ private func checkHotKeyFormatting() throws {
     )
 }
 
+private func checkActiveHotKeyPresentation() throws {
+    let custom = HotKey(key: "S", keyCode: 1, modifiers: [.control, .option])
+    try expect(
+        ActiveHotKeyFormatter.symbolic(custom) == "⌥⌃S",
+        "shelf formats the actually active hotkey"
+    )
+    try expect(
+        ActiveHotKeyFormatter.readable(custom) == "Option (⌥) + Control (⌃) + S",
+        "settings format the actually active hotkey"
+    )
+    try expect(ActiveHotKeyFormatter.symbolic(nil) == "—", "missing active hotkey is explicit on shelf")
+    try expect(
+        ActiveHotKeyFormatter.readable(nil) == "Не назначена",
+        "missing active hotkey is explicit in settings"
+    )
+}
+
+private func checkHotKeyStartupFallback() throws {
+    let custom = HotKey(key: "S", keyCode: 1, modifiers: [.command, .option])
+    try expect(
+        HotKeyStartupPolicy.candidates(preferred: custom) == [custom, .defaultCapture],
+        "startup falls back to the standard hotkey when a saved custom hotkey cannot register"
+    )
+    try expect(
+        HotKeyStartupPolicy.candidates(preferred: .defaultCapture) == [.defaultCapture],
+        "startup does not retry the same default hotkey"
+    )
+}
+
 private enum SimulatedHotKeyRegistrationError: Error {
     case conflict
 }
@@ -1170,6 +1199,8 @@ do {
     try checkFrozenScreenCrop()
     try checkModels()
     try checkHotKeyFormatting()
+    try checkActiveHotKeyPresentation()
+    try checkHotKeyStartupFallback()
     try checkHotKeyRegistrationTransaction()
     try checkEditorState()
     try checkAnnotationDraftBuilder()

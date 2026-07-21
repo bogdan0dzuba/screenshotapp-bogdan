@@ -29,7 +29,7 @@ final class RegionSelectionController {
     private func presentOverlay(on screen: NSScreen, backdropImage: CGImage) {
         activeScreen = screen
         frozenScreen = backdropImage
-        let panel = NSPanel(
+        let panel = KeyableSelectionPanel(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -46,6 +46,7 @@ final class RegionSelectionController {
         )
         overlay.onComplete = { [weak self] rect in self?.complete(localRect: rect) }
         overlay.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
+        panel.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
         panel.contentView = overlay
         self.panel = panel
         NSApp.activate(ignoringOtherApps: true)
@@ -146,6 +147,10 @@ private final class SelectionOverlayView: NSView {
         if event.keyCode == 53 { onCancel?() } else { super.keyDown(with: event) }
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         drawBackdrop()
         NSColor.black.withAlphaComponent(0.42).setFill()
@@ -210,5 +215,20 @@ private final class SelectionOverlayView: NSView {
             ? selectionRect.maxY + 6
             : max(6, selectionRect.minY - value.size().height - 6)
         value.draw(at: CGPoint(x: selectionRect.minX, y: y))
+    }
+}
+
+private final class KeyableSelectionPanel: NSPanel {
+    var onCancel: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { onCancel?() } else { super.keyDown(with: event) }
     }
 }

@@ -4,13 +4,15 @@ import SwiftUI
 
 struct ShelfView: View {
     @ObservedObject var model: AppModel
+    let onOpenSettings: () -> Void
     @ObservedObject private var history: HistoryStore
     @ObservedObject private var preferences: AppPreferences
     @State private var splitDragStartFraction: Double?
     @State private var splitDividerCursorIsActive = false
 
-    init(model: AppModel) {
+    init(model: AppModel, onOpenSettings: @escaping () -> Void) {
         self.model = model
+        self.onOpenSettings = onOpenSettings
         _history = ObservedObject(wrappedValue: model.history)
         _preferences = ObservedObject(wrappedValue: model.preferences)
     }
@@ -197,7 +199,7 @@ struct ShelfView: View {
                 .accessibilityLabel("Текущая версия \(AppIdentity.versionDescription)")
             ShelfWindowDragHandle()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            SettingsLink {
+            Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")
                     .shelfToggleHitTarget()
             }

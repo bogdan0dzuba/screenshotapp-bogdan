@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published var statusMessage = "Готово к захвату"
     @Published private(set) var isBusy = false
+    @Published private(set) var activeHotKey: HotKey?
 
     let preferences: AppPreferences
     let history: HistoryStore
@@ -39,7 +40,6 @@ final class AppModel: ObservableObject {
     private var pendingCaptureResults: [PendingCaptureResult] = []
     private var nextCaptureSequence: UInt64 = 0
     private var latestPresentedCaptureSequence: UInt64 = 0
-    private var registeredHotKey: HotKey?
 
     init() {
         let preferences = AppPreferences()
@@ -70,22 +70,41 @@ final class AppModel: ObservableObject {
     }
 
     func registerHotKey() {
-        registerHotKey(preferences.hotKey)
+        let preferred = preferences.hotKey
+        var lastError: Error?
+
+        for candidate in HotKeyStartupPolicy.candidates(preferred: preferred) {
+            do {
+                try activateHotKey(candidate)
+                if candidate != preferred {
+                    statusMessage = "Сохраненный хоткей занят. Включен стандартный: \(hotKeyDescription)"
+                }
+                return
+            } catch {
+                lastError = error
+            }
+        }
+
+        activeHotKey = hotKeyService.registeredHotKey
+        if let activeHotKey {
+            preferences.setHotKey(activeHotKey)
+        }
+        if let lastError {
+            presentHotKeyRegistrationError(lastError)
+        }
     }
 
     @discardableResult
     func registerHotKey(_ candidateHotKey: HotKey) -> Bool {
-        let previousHotKey = registeredHotKey
+        let previousHotKey = activeHotKey
         do {
-            try hotKeyService.register(candidateHotKey) { [weak self] in
-                DispatchQueue.main.async { self?.capture(.area) }
-            }
-            registeredHotKey = candidateHotKey
-            preferences.setHotKey(candidateHotKey)
-            statusMessage = "Хоткей: \(HotKeyDisplayFormatter.symbolic(candidateHotKey))"
+            try activateHotKey(candidateHotKey)
             return true
         } catch {
-            if let previousHotKey {
+            activeHotKey = hotKeyService.registeredHotKey
+            if let activeHotKey {
+                preferences.setHotKey(activeHotKey)
+            } else if let previousHotKey {
                 preferences.setHotKey(previousHotKey)
             }
             presentHotKeyRegistrationError(error)
@@ -93,12 +112,23 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func activateHotKey(_ candidateHotKey: HotKey) throws {
+        try hotKeyService.register(candidateHotKey) { [weak self] in
+            DispatchQueue.main.async { self?.capture(.area) }
+        }
+        activeHotKey = hotKeyService.registeredHotKey
+        if let activeHotKey {
+            preferences.setHotKey(activeHotKey)
+            statusMessage = "Хоткей: \(ActiveHotKeyFormatter.symbolic(activeHotKey))"
+        }
+    }
+
     var hotKeyDescription: String {
-        HotKeyDisplayFormatter.symbolic(preferences.hotKey)
+        ActiveHotKeyFormatter.symbolic(activeHotKey)
     }
 
     var hotKeyReadableDescription: String {
-        HotKeyDisplayFormatter.readable(preferences.hotKey)
+        ActiveHotKeyFormatter.readable(activeHotKey)
     }
 
     func capture(_ mode: CaptureMode) {

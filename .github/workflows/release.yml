@@ -23,9 +23,11 @@ jobs:
           bash Tests/CaptureMetadataChecks.sh
           bash Tests/CapturePerformanceChecks.sh
           bash Tests/HoverPreservationChecks.sh
+          bash Tests/CaptureCancellationChecks.sh
           bash Tests/ShelfPanelInteractionChecks.sh
           bash Tests/EditorWindowInteractionChecks.sh
           bash Tests/SettingsInteractionChecks.sh
+          bash Tests/SettingsWindowChecks.sh
           bash Tests/AppIdentityChecks.sh
           bash Tests/ReleasePackagingChecks.sh
           bash Tests/RepositoryPublicationChecks.sh
@@ -34,7 +36,7 @@ jobs:
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.12"
+          version="0.5.13"
           echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 

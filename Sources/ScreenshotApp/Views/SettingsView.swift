@@ -34,6 +34,7 @@ struct SettingsView: View {
         .frame(width: 560, height: 350)
         .padding()
         .onAppear { synchronizeHotKeyDraft() }
+        .onChange(of: model.activeHotKey) { _, _ in synchronizeHotKeyDraft() }
     }
 
     private var generalTab: some View {
@@ -57,12 +58,21 @@ struct SettingsView: View {
                     ForEach(preferences.availableLetters, id: \.self) { Text($0).tag($0) }
                 }
                 .frame(maxWidth: 220, alignment: .leading)
-                LabeledContent("Текущая комбинация") {
+                LabeledContent("Активная комбинация") {
+                    Text(model.hotKeyReadableDescription)
+                        .fontWeight(.semibold)
+                        .textSelection(.enabled)
+                }
+                LabeledContent("Новая комбинация") {
                     Text(HotKeyDisplayFormatter.readable(hotKeyDraft))
                         .fontWeight(.semibold)
                         .textSelection(.enabled)
                 }
-                Button("Применить сочетание") { model.registerHotKey(hotKeyDraft) }
+                Button("Применить сочетание") {
+                    if !model.registerHotKey(hotKeyDraft) {
+                        synchronizeHotKeyDraft()
+                    }
+                }
             }
             Section("Сохранение") {
                 LabeledContent("Папка") {
@@ -145,11 +155,12 @@ struct SettingsView: View {
     }
 
     private func synchronizeHotKeyDraft() {
-        draftHotKeyLetter = preferences.hotKeyLetter
-        draftUseCommand = preferences.useCommand
-        draftUseShift = preferences.useShift
-        draftUseOption = preferences.useOption
-        draftUseControl = preferences.useControl
+        let hotKey = model.activeHotKey ?? preferences.hotKey
+        draftHotKeyLetter = hotKey.key
+        draftUseCommand = hotKey.modifiers.contains(.command)
+        draftUseShift = hotKey.modifiers.contains(.shift)
+        draftUseOption = hotKey.modifiers.contains(.option)
+        draftUseControl = hotKey.modifiers.contains(.control)
     }
 
     private var historyTab: some View {

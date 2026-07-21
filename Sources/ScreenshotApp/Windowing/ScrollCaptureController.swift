@@ -173,7 +173,7 @@ final class ScrollCaptureController: ObservableObject {
 
     private func showPanel() {
         if panel == nil {
-            let panel = NSPanel(
+            let panel = KeyableScrollCapturePanel(
                 contentRect: CGRect(x: 0, y: 0, width: 530, height: 128),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
@@ -188,6 +188,7 @@ final class ScrollCaptureController: ObservableObject {
             panel.sharingType = .none
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.contentView = NSHostingView(rootView: ScrollCaptureControlsView(controller: self))
+            panel.onCancel = { [weak self] in self?.cancel() }
             self.panel = panel
         }
         let mouseLocation = NSEvent.mouseLocation
@@ -198,6 +199,21 @@ final class ScrollCaptureController: ObservableObject {
         }
         let visible = screen.visibleFrame
         panel.setFrameOrigin(CGPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 24))
-        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+    }
+}
+
+private final class KeyableScrollCapturePanel: NSPanel {
+    var onCancel: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { onCancel?() } else { super.keyDown(with: event) }
     }
 }

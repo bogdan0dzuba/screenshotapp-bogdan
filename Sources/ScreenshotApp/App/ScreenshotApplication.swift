@@ -6,11 +6,11 @@ struct ScreenshotApplication: App {
 
     var body: some Scene {
         MenuBarExtra(AppIdentity.displayName, systemImage: "camera.viewfinder") {
-            MenuBarView(model: appDelegate.model, updateService: appDelegate.updateService)
-        }
-
-        Settings {
-            SettingsView(model: appDelegate.model, updateService: appDelegate.updateService)
+            MenuBarView(
+                model: appDelegate.model,
+                updateService: appDelegate.updateService,
+                onOpenSettings: appDelegate.showSettings
+            )
         }
     }
 }
