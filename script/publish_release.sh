@@ -10,7 +10,8 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPOSITORY="bogdan0dzuba/screenshotapp-bogdan"
 TAG="v$VERSION"
-SPARKLE_BIN_DIR="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin"
+RELEASE_SPARKLE_BIN_DIR="/private/tmp/ScreenshotApp-Bogdan-release-arm64-$(id -u)/artifacts/sparkle/Sparkle/bin"
+LOCAL_SPARKLE_BIN_DIR="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin"
 DIST_DIR="$ROOT_DIR/dist"
 
 cd "$ROOT_DIR"
@@ -33,9 +34,17 @@ git fetch origin main
 
 SCREENSHOT_APP_VERSION="$VERSION" "$ROOT_DIR/script/build_release.sh"
 
+SPARKLE_BIN_DIR=""
+for candidate in "$RELEASE_SPARKLE_BIN_DIR" "$LOCAL_SPARKLE_BIN_DIR"; do
+  if [[ -x "$candidate/generate_keys" && -x "$candidate/generate_appcast" ]]; then
+    SPARKLE_BIN_DIR="$candidate"
+    break
+  fi
+done
+
 GENERATE_KEYS="$SPARKLE_BIN_DIR/generate_keys"
 GENERATE_APPCAST="$SPARKLE_BIN_DIR/generate_appcast"
-[[ -x "$GENERATE_KEYS" && -x "$GENERATE_APPCAST" ]] || {
+[[ -n "$SPARKLE_BIN_DIR" ]] || {
   echo "Инструменты Sparkle не найдены после сборки." >&2
   exit 1
 }

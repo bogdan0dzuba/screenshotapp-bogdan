@@ -46,6 +46,8 @@ require_text script/publish_release.sh 'generate_keys' \
   "local release script does not read the Sparkle key from macOS Keychain"
 require_text script/publish_release.sh 'generate_appcast' \
   "local release script does not sign the update feed"
+require_text script/publish_release.sh 'ScreenshotApp-Bogdan-release-arm64-$(id -u)/artifacts/sparkle/Sparkle/bin' \
+  "fresh-clone release cannot find Sparkle tools in the architecture scratch build"
 require_text script/publish_release.sh 'APPCAST_INPUT_DIR' \
   "appcast generation is not isolated from stale local archives"
 require_text script/publish_release.sh 'gh release create' \
