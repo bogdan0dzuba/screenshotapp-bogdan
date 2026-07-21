@@ -19,6 +19,28 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) thr
     if !condition() { throw CheckFailure.failed(message) }
 }
 
+private func checkFrozenScreenCrop() throws {
+    let pixelRect = FrozenScreenCrop.pixelRect(
+        selection: CGRect(x: 100, y: 50, width: 200, height: 100),
+        viewSize: CGSize(width: 1_000, height: 500),
+        imagePixelSize: CGSize(width: 2_000, height: 1_000)
+    )
+    try expect(
+        pixelRect == CGRect(x: 200, y: 100, width: 400, height: 200),
+        "frozen screen selection maps from flipped points to Retina pixels"
+    )
+
+    let clamped = FrozenScreenCrop.pixelRect(
+        selection: CGRect(x: 950, y: 480, width: 100, height: 100),
+        viewSize: CGSize(width: 1_000, height: 500),
+        imagePixelSize: CGSize(width: 2_000, height: 1_000)
+    )
+    try expect(
+        clamped == CGRect(x: 1_900, y: 960, width: 100, height: 40),
+        "frozen screen crop stays inside the captured image"
+    )
+}
+
 private func requireValue<Value>(_ value: Value?, _ message: String) throws -> Value {
     guard let value else { throw CheckFailure.failed(message) }
     return value
@@ -977,6 +999,7 @@ private func checkManagedCaptureFiles() throws {
 }
 
 do {
+    try checkFrozenScreenCrop()
     try checkModels()
     try checkHotKeyFormatting()
     try checkEditorState()

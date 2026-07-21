@@ -3,7 +3,7 @@ set -euo pipefail
 
 RELEASE_SCRIPT="${1:-script/build_release.sh}"
 ARCHIVE="${2:-}"
-EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.6}"
+EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.7}"
 
 require_script() {
   local pattern="$1"

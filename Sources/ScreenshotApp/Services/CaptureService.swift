@@ -26,6 +26,31 @@ enum CaptureError: LocalizedError {
 }
 
 struct CaptureService: Sendable {
+    func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
+        let integral = rect.integral
+        if #available(macOS 15.2, *) {
+            let image = try await SCScreenshotManager.captureImage(in: integral)
+            CaptureTelemetry.logger.info("frozen_screen_captured")
+            return image
+        }
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotApp-Frozen-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let region = "\(Int(integral.minX)),\(Int(integral.minY)),\(Int(integral.width)),\(Int(integral.height))"
+        try await runScreencapture(arguments: ["-x", "-R", region, temporaryURL.path], outputURL: temporaryURL)
+        guard let source = CGImageSourceCreateWithURL(temporaryURL as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw CaptureError.missingOutput
+        }
+        CaptureTelemetry.logger.info("frozen_screen_captured_fallback")
+        return image
+    }
+
+    func write(_ image: CGImage, to outputURL: URL) throws {
+        try Self.writePNG(image, to: outputURL)
+    }
+
     func capture(_ mode: CaptureMode, to outputURL: URL) async throws {
         var arguments = ["-x"]
         switch mode {

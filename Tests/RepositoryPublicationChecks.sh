@@ -26,13 +26,14 @@ require_text "$README" "docs/assets/shelf-demo.gif" "README has no shelf demonst
 require_text "$README" "docs/assets/hotkey-demo.gif" "README has no hotkey demonstration"
 require_text "$README" "docs/assets/editor-demo.gif" "README has no editor demonstration"
 require_text "$README" "docs/assets/scroll-capture-demo.gif" "README has no scrolling-capture demonstration"
-require_text "$README" "v0.5.6" "README does not name the current public version"
+require_text "$README" "v0.5.7" "README does not name the current public version"
 require_text "$README" "Запись экрана" "README does not explain the screen-recording permission"
 require_text "$README" "Gatekeeper" "README does not explain the unsigned preview limitation"
 require_text "$README" "приложение и доступный заголовок окна" \
   "README does not explain local capture-source metadata"
 require_text "$README" "CaptureMetadataChecks.sh" "README omits the metadata verification command"
 require_text "$README" "CapturePerformanceChecks.sh" "README omits the capture-performance verification command"
+require_text "$README" "HoverPreservationChecks.sh" "README omits the hover-preservation verification command"
 [[ -s docs/assets/shelf-demo.gif ]] || {
   echo "RepositoryPublicationChecks: shelf demonstration asset is missing" >&2
   exit 1
@@ -55,6 +56,7 @@ require_text "$WORKFLOW" "./script/build_release.sh" "workflow does not create a
 require_text "$PUBLISH_SCRIPT" "gh release create" "local release script does not publish tagged releases"
 require_text "$WORKFLOW" "CaptureMetadataChecks.sh" "workflow does not verify capture metadata propagation"
 require_text "$WORKFLOW" "CapturePerformanceChecks.sh" "workflow does not verify capture responsiveness"
+require_text "$WORKFLOW" "HoverPreservationChecks.sh" "workflow does not verify hover preservation"
 
 require_text "$GITIGNORE" ".build/" "Swift build output is not ignored"
 require_text "$GITIGNORE" "dist/" "local release output is not ignored"

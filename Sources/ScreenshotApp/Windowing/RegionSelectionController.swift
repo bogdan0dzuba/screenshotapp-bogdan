@@ -1,28 +1,34 @@
 import AppKit
 import Foundation
+import ScreenshotCore
+
+struct RegionSelection {
+    var rect: CGRect
+    var image: CGImage
+}
 
 @MainActor
 final class RegionSelectionController {
     private var panel: NSPanel?
-    private var continuation: CheckedContinuation<CGRect, Error>?
+    private var continuation: CheckedContinuation<RegionSelection, Error>?
     private var activeScreen: NSScreen?
+    private var frozenScreen: CGImage?
 
-    func selectRegion() async throws -> CGRect {
+    func selectRegion(using captureService: CaptureService) async throws -> RegionSelection {
         if continuation != nil { throw CaptureError.cancelled }
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
+        guard let screen else { throw CaptureError.cancelled }
+        let backdropImage = try await captureService.captureFrozenScreen(rect: captureRect(for: screen))
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            presentOverlay()
+            presentOverlay(on: screen, backdropImage: backdropImage)
         }
     }
 
-    private func presentOverlay() {
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
-        guard let screen else {
-            finish(.failure(CaptureError.cancelled))
-            return
-        }
+    private func presentOverlay(on screen: NSScreen, backdropImage: CGImage) {
         activeScreen = screen
+        frozenScreen = backdropImage
         let panel = NSPanel(
             contentRect: screen.frame,
             styleMask: [.borderless],
@@ -34,7 +40,10 @@ final class RegionSelectionController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        let overlay = SelectionOverlayView(frame: CGRect(origin: .zero, size: screen.frame.size))
+        let overlay = SelectionOverlayView(
+            frame: CGRect(origin: .zero, size: screen.frame.size),
+            backdropImage: backdropImage
+        )
         overlay.onComplete = { [weak self] rect in self?.complete(localRect: rect) }
         overlay.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
         panel.contentView = overlay
@@ -46,24 +55,51 @@ final class RegionSelectionController {
     }
 
     private func complete(localRect: CGRect) {
-        guard localRect.width >= 3, localRect.height >= 3, let screen = activeScreen else {
+        guard localRect.width >= 3, localRect.height >= 3,
+              let screen = activeScreen,
+              let frozenScreen,
+              let image = cropFrozenScreen(
+                localRect: localRect,
+                screenSize: screen.frame.size,
+                image: frozenScreen
+              ) else {
             finish(.failure(CaptureError.cancelled))
             return
         }
-        let mainTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
         let global = CGRect(
             x: screen.frame.minX + localRect.minX,
-            y: mainTop - screen.frame.maxY + localRect.minY,
+            y: captureRect(for: screen).minY + localRect.minY,
             width: localRect.width,
             height: localRect.height
         )
-        finish(.success(global))
+        finish(.success(RegionSelection(rect: global, image: image)))
     }
 
-    private func finish(_ result: Result<CGRect, Error>) {
+    private func captureRect(for screen: NSScreen) -> CGRect {
+        let mainTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        return CGRect(
+            x: screen.frame.minX,
+            y: mainTop - screen.frame.maxY,
+            width: screen.frame.width,
+            height: screen.frame.height
+        )
+    }
+
+    private func cropFrozenScreen(localRect: CGRect, screenSize: CGSize, image: CGImage) -> CGImage? {
+        let pixelRect = FrozenScreenCrop.pixelRect(
+            selection: localRect,
+            viewSize: screenSize,
+            imagePixelSize: CGSize(width: image.width, height: image.height)
+        )
+        guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
+        return image.cropping(to: pixelRect)
+    }
+
+    private func finish(_ result: Result<RegionSelection, Error>) {
         panel?.orderOut(nil)
         panel = nil
         activeScreen = nil
+        frozenScreen = nil
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(with: result)
@@ -75,6 +111,17 @@ private final class SelectionOverlayView: NSView {
     var onCancel: (() -> Void)?
     private var startPoint: CGPoint?
     private var currentPoint: CGPoint?
+    private let backdropImage: NSImage
+
+    init(frame frameRect: NSRect, backdropImage: CGImage) {
+        self.backdropImage = NSImage(cgImage: backdropImage, size: frameRect.size)
+        super.init(frame: frameRect)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -100,19 +147,33 @@ private final class SelectionOverlayView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        drawBackdrop()
         NSColor.black.withAlphaComponent(0.42).setFill()
         bounds.fill()
         guard !selectionRect.isEmpty else {
             drawHint()
             return
         }
-        NSColor.clear.setFill()
-        selectionRect.fill(using: .copy)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: selectionRect).addClip()
+        drawBackdrop()
+        NSGraphicsContext.restoreGraphicsState()
         NSColor.controlAccentColor.setStroke()
         let outline = NSBezierPath(roundedRect: selectionRect, xRadius: 3, yRadius: 3)
         outline.lineWidth = 2
         outline.stroke()
         drawSizeLabel()
+    }
+
+    private func drawBackdrop() {
+        backdropImage.draw(
+            in: bounds,
+            from: .zero,
+            operation: .copy,
+            fraction: 1,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.none]
+        )
     }
 
     private var selectionRect: CGRect {

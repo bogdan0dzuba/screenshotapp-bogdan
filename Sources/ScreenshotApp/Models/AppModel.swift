@@ -107,9 +107,9 @@ final class AppModel: ObservableObject {
         CaptureTelemetry.logger.info("area_capture_started")
         let captureService = captureService
         let captureTask = Task { @MainActor in
-            let rect = try await regionSelectionController.selectRegion()
+            let selection = try await regionSelectionController.selectRegion(using: captureService)
             try await Task.detached(priority: .userInitiated) {
-                try await captureService.capture(rect: rect, to: request.temporaryURL)
+                try captureService.write(selection.image, to: request.temporaryURL)
             }.value
         }
         finishCapture(request, task: captureTask)
@@ -192,16 +192,12 @@ final class AppModel: ObservableObject {
         shelfController?.suspend()
         Task {
             do {
-                let rect = try await regionSelectionController.selectRegion()
-                let temporaryURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("ScreenshotScroll-\(UUID().uuidString).png")
-                defer { try? FileManager.default.removeItem(at: temporaryURL) }
-                try await captureService.capture(rect: rect, to: temporaryURL)
-                guard let image = NSImage(contentsOf: temporaryURL),
-                      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                    throw CaptureError.missingOutput
-                }
-                scrollCaptureController?.begin(rect: rect, firstFrame: cgImage, model: self)
+                let selection = try await regionSelectionController.selectRegion(using: captureService)
+                scrollCaptureController?.begin(
+                    rect: selection.rect,
+                    firstFrame: selection.image,
+                    model: self
+                )
                 statusMessage = "Прокрутите содержимое и добавьте кадр"
             } catch CaptureError.cancelled {
                 pendingCaptureSource = nil
