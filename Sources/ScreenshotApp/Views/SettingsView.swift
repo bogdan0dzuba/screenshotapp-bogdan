@@ -109,7 +109,7 @@ struct SettingsView: View {
                 )
                 .disabled(!updateService.automaticallyChecksForUpdates)
                 Button("Проверить сейчас…") { updateService.checkForUpdates() }
-                Text("Проверка выполняется при запуске и затем каждые 6 часов. Найденное обновление показывается отдельным окном; архив загружается из GitHub Releases и проверяется криптографической подписью.")
+                Text("Проверка выполняется при запуске и затем раз в сутки. Новая версия автоматически загружается из GitHub Releases, проверяется криптографической подписью, устанавливается и быстро перезапускает приложение.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

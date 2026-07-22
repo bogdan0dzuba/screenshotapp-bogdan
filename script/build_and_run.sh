@@ -128,9 +128,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.14</string>
+  <string>0.5.15</string>
   <key>CFBundleVersion</key>
-  <string>28</string>
+  <string>29</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
@@ -148,11 +148,11 @@ cat >"$INFO_PLIST" <<PLIST
   <key>SUEnableAutomaticChecks</key>
   <true/>
   <key>SUScheduledCheckInterval</key>
-  <integer>21600</integer>
+  <integer>86400</integer>
   <key>SUAllowsAutomaticUpdates</key>
   <true/>
   <key>SUAutomaticallyUpdate</key>
-  <false/>
+  <true/>
 </dict>
 </plist>
 PLIST

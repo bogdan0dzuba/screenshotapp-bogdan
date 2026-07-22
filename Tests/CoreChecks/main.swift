@@ -1302,6 +1302,23 @@ private func checkManagedCaptureFiles() throws {
     )
 }
 
+private func checkAutomaticUpdateDefaultsMigration() throws {
+    let suiteName = "AutomaticUpdateDefaultsMigrationTests-\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        throw CheckFailure.failed("cannot create isolated update defaults")
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    try expect(
+        AutomaticUpdateDefaultsMigration.shouldEnableAutomaticUpdates(in: defaults),
+        "automatic updates are enabled for an existing installation exactly once"
+    )
+    try expect(
+        !AutomaticUpdateDefaultsMigration.shouldEnableAutomaticUpdates(in: defaults),
+        "a user's later update preference is preserved after migration"
+    )
+}
+
 do {
     try checkFrozenScreenCrop()
     try checkModels()
@@ -1340,6 +1357,7 @@ do {
     try checkCaptureFileNames()
     try checkHistoryRetentionPolicy()
     try checkManagedCaptureFiles()
+    try checkAutomaticUpdateDefaultsMigration()
     print("CoreChecks: OK")
 } catch {
     fputs("CoreChecks: \(error)\n", stderr)

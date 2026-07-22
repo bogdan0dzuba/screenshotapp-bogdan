@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Использование: ./script/publish_release.sh 0.5.14" >&2
+  echo "Использование: ./script/publish_release.sh 0.5.15" >&2
   exit 2
 fi
 

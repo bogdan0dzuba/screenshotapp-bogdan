@@ -14,6 +14,12 @@ require_text() {
 require_text Package.swift 'sparkle-project/Sparkle' "Sparkle package is not configured"
 require_text Sources/ScreenshotApp/Services/UpdateService.swift 'SPUStandardUpdaterController' \
   "standard Sparkle updater is not initialized"
+require_text Sources/ScreenshotApp/Services/UpdateService.swift 'AutomaticUpdateDefaultsMigration.shouldEnableAutomaticUpdates' \
+  "existing installations are not migrated to automatic updates"
+require_text Sources/ScreenshotApp/Services/UpdateService.swift 'willInstallUpdateOnQuit' \
+  "downloaded updates are not installed immediately"
+require_text Sources/ScreenshotApp/Services/UpdateService.swift 'immediateInstallHandler()' \
+  "automatic updates do not trigger Sparkle's silent install and relaunch"
 require_text Sources/ScreenshotApp/Services/UpdateService.swift 'startingUpdater: false' \
   "Sparkle starts before the app can schedule a deterministic launch check"
 require_text Sources/ScreenshotApp/Services/UpdateService.swift 'startUpdaterAndCheckAtLaunch()' \
@@ -34,14 +40,16 @@ require_text Sources/ScreenshotApp/Views/SettingsView.swift 'Автоматич�
   "automatic update setting is missing"
 require_text script/build_release.sh 'SUFeedURL' "release bundle has no appcast URL"
 require_text script/build_release.sh 'SUPublicEDKey' "release bundle has no EdDSA public key"
-require_text script/build_release.sh 'SUAutomaticallyUpdate -bool NO' \
-  "release bundle does not default to a visible user-confirmed update"
-require_text script/build_release.sh 'SUScheduledCheckInterval -integer 21600' \
-  "release bundle does not shorten Sparkle's one-day polling interval"
+require_text script/build_release.sh 'SUAutomaticallyUpdate -bool YES' \
+  "release bundle does not enable automatic install by default"
+require_text script/build_release.sh 'SUScheduledCheckInterval -integer 86400' \
+  "release bundle does not use a one-day polling interval"
 require_text script/build_and_run.sh 'SUAutomaticallyUpdate' \
   "local bundle does not declare the automatic-download default"
-require_text script/build_and_run.sh '<integer>21600</integer>' \
-  "local bundle does not shorten Sparkle's one-day polling interval"
+require_text script/build_and_run.sh '<integer>86400</integer>' \
+  "local bundle does not use a one-day polling interval"
+require_text Sources/ScreenshotApp/Views/SettingsView.swift 'раз в сутки' \
+  "settings do not explain the daily automatic update behavior"
 require_text script/publish_release.sh 'generate_keys' \
   "local release script does not read the Sparkle key from macOS Keychain"
 require_text script/publish_release.sh 'generate_appcast' \
