@@ -18,6 +18,10 @@ require_text() {
 
 require_text Sources/ScreenshotApp/Support/AppIdentity.swift 'displayName = "Богдан Скриншот"' \
   "the public product name is missing"
+if /usr/bin/grep -Fq -- 'CFBundleVersion' Sources/ScreenshotApp/Support/AppIdentity.swift; then
+  echo "AppIdentityChecks: the internal build number is exposed to users" >&2
+  exit 1
+fi
 require_text "$APPLICATION" 'MenuBarExtra(AppIdentity.displayName' \
   "menu bar app does not use the public product name"
 require_text "$SETTINGS_VIEW" 'Section("О приложении")' \
