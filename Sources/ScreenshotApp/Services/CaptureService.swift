@@ -29,15 +29,32 @@ struct CaptureService: Sendable {
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
         let integral = rect.integral
         if #available(macOS 15.2, *) {
-            let image = try await SCScreenshotManager.captureImage(in: integral)
-            CaptureTelemetry.logger.info("frozen_screen_captured")
-            return image
+            do {
+                let image = try await AsyncDeadline.value(timeout: 0.5) { completion in
+                    SCScreenshotManager.captureImage(in: integral) { image, error in
+                        if let image {
+                            completion(.success(image))
+                        } else {
+                            completion(.failure(error ?? CaptureError.missingOutput))
+                        }
+                    }
+                }
+                CaptureTelemetry.logger.info("frozen_screen_captured")
+                return image
+            } catch {
+                CaptureTelemetry.logger.notice("frozen_screen_native_fallback")
+                return try await captureFrozenScreenFallback(rect: integral)
+            }
         }
 
+        return try await captureFrozenScreenFallback(rect: integral)
+    }
+
+    private func captureFrozenScreenFallback(rect: CGRect) async throws -> CGImage {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreenshotApp-Frozen-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
-        let region = "\(Int(integral.minX)),\(Int(integral.minY)),\(Int(integral.width)),\(Int(integral.height))"
+        let region = "\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))"
         try await runScreencapture(arguments: ["-x", "-R", region, temporaryURL.path], outputURL: temporaryURL)
         guard let source = CGImageSourceCreateWithURL(temporaryURL as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {

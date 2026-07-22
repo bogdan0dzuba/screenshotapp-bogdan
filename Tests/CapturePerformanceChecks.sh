@@ -64,6 +64,8 @@ require_text "$MODEL" "private func captureArea()" "ScreenCaptureKit-backed area
 require_text "$MODEL" "selection.image" "area capture recaptures pixels after the selection is complete"
 require_text "$CAPTURE_SERVICE" "SCScreenshotManager.captureImage(in:" "modern macOS still launches an external process for every selected region"
 require_text "$CAPTURE_SERVICE" "runScreencapture(arguments:" "macOS 14 fallback for selected-region capture is missing"
+require_text "$CAPTURE_SERVICE" "AsyncDeadline.value(" "a hung ScreenCaptureKit request can block every later hotkey press"
+require_text "$CAPTURE_SERVICE" "captureFrozenScreenFallback(rect:" "a timed-out frozen-screen capture has no nonblocking fallback"
 require_text "$MODEL" "finishCaptureAndBeginImport" "the hotkey remains blocked during background import"
 require_text "$MODEL" "captureActivity.canChangeStorage" "storage can still change while a capture is importing"
 require_text "$MODEL" "CaptureResultOrder.sequenceToPresent" "an older slow import can still replace a newer capture"
