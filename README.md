@@ -8,8 +8,8 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.13-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.13)
-[![Скачать](https://img.shields.io/badge/Скачать-последнюю%20версию-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
+[![Версия](https://img.shields.io/badge/версия-v0.5.14-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.14)
+[![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
 
 ## Как это выглядит
 
@@ -70,10 +70,11 @@
 
 ## Скачать и установить
 
-1. [Скачайте последнюю Universal-версию](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip).
-2. Распакуйте ZIP и перенесите `Богдан Скриншот.app` в папку «Программы».
-3. При первом запуске нажмите правой кнопкой по приложению и выберите «Открыть».
-4. Разрешите «Запись экрана», затем перезапустите приложение.
+1. [Скачайте Universal DMG-установщик](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg).
+2. Откройте DMG и запустите `Богдан Скриншот.app`. [ZIP-архив](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip) оставлен для Sparkle и ручной установки.
+3. Подтвердите установку в личную папку «Программы». При желании исходная скачанная копия будет перемещена в Корзину.
+4. При первом запуске macOS может потребовать правую кнопку -> «Открыть».
+5. Разрешите «Запись экрана», затем перезапустите приложение.
 
 Путь к разрешению:
 
@@ -108,7 +109,7 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.13`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.14`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем каждые 6 часов. Найденное обновление выводится отдельным окном с предложением скачать и перезапустить приложение; автоматическую загрузку можно включить отдельно в настройках.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
 

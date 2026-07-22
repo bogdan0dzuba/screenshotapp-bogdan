@@ -5,8 +5,8 @@ BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="Богдан Скриншот"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.13}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-27}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.14}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-28}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -25,6 +25,9 @@ BUILD_CACHE_DIR="/private/tmp/ScreenshotApp-Bogdan-release-cache-$(id -u)"
 ARCHIVE_NAME="ScreenshotApp-Bogdan-macOS-Universal.zip"
 DELIVERABLE_ZIP="$DIST_DIR/$ARCHIVE_NAME"
 CHECKSUM_FILE="$DELIVERABLE_ZIP.sha256"
+DMG_NAME="ScreenshotApp-Bogdan-macOS-Universal.dmg"
+DELIVERABLE_DMG="$DIST_DIR/$DMG_NAME"
+DMG_STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-dmg-stage-$(id -u)"
 
 prepare_swift_environment() {
   mkdir -p "$BUILD_CACHE_DIR/clang" "$BUILD_CACHE_DIR/swiftpm"
@@ -101,8 +104,9 @@ bash "$ROOT_DIR/Tests/CaptureCancellationChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
+bash "$ROOT_DIR/Tests/ApplicationInstallationChecks.sh"
 
-/bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$INTEL_BUILD_DIR"
+/bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$INTEL_BUILD_DIR" "$DMG_STAGE_DIR"
 mkdir -p "$DIST_DIR" "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 
 build_architecture "arm64-apple-macosx14.0" "$ARM_BUILD_DIR"
@@ -171,15 +175,27 @@ else
 fi
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
-/bin/rm -f -- "$DELIVERABLE_ZIP" "$CHECKSUM_FILE"
+/bin/rm -f -- "$DELIVERABLE_ZIP" "$CHECKSUM_FILE" "$DELIVERABLE_DMG" "$DELIVERABLE_DMG.sha256"
 /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE" "$DELIVERABLE_ZIP"
+mkdir -p "$DMG_STAGE_DIR"
+/usr/bin/ditto --norsrc "$APP_BUNDLE" "$DMG_STAGE_DIR/$APP_NAME.app"
+ln -s /Applications "$DMG_STAGE_DIR/Программы"
+/usr/bin/hdiutil create \
+  -volname "$APP_NAME" \
+  -srcfolder "$DMG_STAGE_DIR" \
+  -ov \
+  -format UDZO \
+  "$DELIVERABLE_DMG" \
+  >/dev/null
 (
   cd "$DIST_DIR"
   /usr/bin/shasum -a 256 "$ARCHIVE_NAME" >"$ARCHIVE_NAME.sha256"
+  /usr/bin/shasum -a 256 "$DMG_NAME" >"$DMG_NAME.sha256"
 )
 
 bash "$ROOT_DIR/Tests/ReleasePackagingChecks.sh" "$ROOT_DIR/script/build_release.sh" "$DELIVERABLE_ZIP"
 
 echo "Готово: $DELIVERABLE_ZIP"
+echo "Установочный образ: $DELIVERABLE_DMG"
 echo "Архитектуры: $ARCHS"
 echo "SHA-256: $(/usr/bin/awk '{print $1}' "$CHECKSUM_FILE")"

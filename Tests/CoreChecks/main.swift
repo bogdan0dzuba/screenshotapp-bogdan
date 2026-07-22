@@ -886,7 +886,8 @@ private func checkShelfWindowSizeStorage() throws {
         !ShelfWindowResizePolicy.shouldPersist(
             isExpanded: true,
             isApplyingPresentation: false,
-            isLiveResize: false
+            isLiveResize: false,
+            isFullScreen: false
         ),
         "system layout changes never overwrite the preferred expanded size"
     )
@@ -894,10 +895,116 @@ private func checkShelfWindowSizeStorage() throws {
         ShelfWindowResizePolicy.shouldPersist(
             isExpanded: true,
             isApplyingPresentation: false,
-            isLiveResize: true
+            isLiveResize: true,
+            isFullScreen: false
         ),
         "a user live-resize persists the preferred expanded size"
     )
+    try expect(
+        !ShelfWindowResizePolicy.shouldPersist(
+            isExpanded: true,
+            isApplyingPresentation: false,
+            isLiveResize: true,
+            isFullScreen: true
+        ),
+        "full-screen transitions never overwrite the preferred expanded size"
+    )
+}
+
+private func checkShelfWindowChromePolicy() throws {
+    try expect(
+        ShelfWindowChromePolicy.showsCustomControls(in: .expanded),
+        "expanded shelf shows its always-visible colored window controls"
+    )
+    try expect(
+        !ShelfWindowChromePolicy.showsCustomControls(in: .collapsed),
+        "collapsed shelf keeps its compact glass shape"
+    )
+    try expect(
+        !ShelfWindowChromePolicy.showsCustomControls(in: .hiddenUntilNextCapture),
+        "hidden shelf has no active window controls"
+    )
+}
+
+private func checkApplicationInstallation() throws {
+    let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
+    let userApplications = home.appendingPathComponent("Applications", isDirectory: true)
+    let destination = ApplicationInstallPolicy.destinationURL(
+        homeDirectory: home,
+        appBundleName: "Богдан Скриншот.app"
+    )
+    try expect(
+        destination == userApplications.appendingPathComponent("Богдан Скриншот.app", isDirectory: true),
+        "installer targets the user's Applications folder without administrator privileges"
+    )
+    try expect(
+        ApplicationInstallPolicy.isInstalled(
+            bundleURL: destination,
+            homeDirectory: home
+        ),
+        "an app in the user's Applications folder is installed"
+    )
+    try expect(
+        ApplicationInstallPolicy.isInstalled(
+            bundleURL: URL(fileURLWithPath: "/Applications/Богдан Скриншот.app", isDirectory: true),
+            homeDirectory: home
+        ),
+        "an app in the system Applications folder is installed"
+    )
+    let downloaded = home
+        .appendingPathComponent("Downloads", isDirectory: true)
+        .appendingPathComponent("Богдан Скриншот.app", isDirectory: true)
+    try expect(
+        !ApplicationInstallPolicy.isInstalled(bundleURL: downloaded, homeDirectory: home),
+        "a downloaded app is offered installation instead of running in place"
+    )
+    try expect(
+        ApplicationInstallPolicy.cleanupCandidate(
+            sourceBundleURL: downloaded,
+            installedBundleURL: destination,
+            userApprovedCleanup: false
+        ) == nil,
+        "the downloaded copy is never removed without explicit consent"
+    )
+    try expect(
+        ApplicationInstallPolicy.cleanupCandidate(
+            sourceBundleURL: downloaded,
+            installedBundleURL: destination,
+            userApprovedCleanup: true
+        ) == downloaded,
+        "the downloaded copy is selected for Trash after explicit consent"
+    )
+    try expect(
+        ApplicationInstallPolicy.cleanupCandidate(
+            sourceBundleURL: destination,
+            installedBundleURL: destination,
+            userApprovedCleanup: true
+        ) == nil,
+        "the installed copy can never delete itself"
+    )
+
+    let fixtureRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScreenshotApp-install-\(UUID().uuidString)", isDirectory: true)
+    let source = fixtureRoot.appendingPathComponent("Source.app", isDirectory: true)
+    let sourceContents = source.appendingPathComponent("Contents", isDirectory: true)
+    let target = fixtureRoot.appendingPathComponent("Applications/Target.app", isDirectory: true)
+    let targetContents = target.appendingPathComponent("Contents", isDirectory: true)
+    try FileManager.default.createDirectory(at: sourceContents, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: targetContents, withIntermediateDirectories: true)
+    try Data("new".utf8).write(to: sourceContents.appendingPathComponent("payload"))
+    try Data("old".utf8).write(to: targetContents.appendingPathComponent("payload"))
+    defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+    try ApplicationBundleInstaller.install(sourceBundleURL: source, destinationBundleURL: target)
+    let installedPayload = try String(
+        contentsOf: targetContents.appendingPathComponent("payload"),
+        encoding: .utf8
+    )
+    try expect(
+        installedPayload == "new",
+        "installer replaces an older installed application with the downloaded version"
+    )
+    try expect(FileManager.default.fileExists(atPath: source.path), "installer preserves source until cleanup consent")
 }
 
 private func checkScreenshotTransferPayloads() throws {
@@ -1225,6 +1332,8 @@ do {
     try checkCompactShelfMetrics()
     try checkShelfToggleGesturePolicy()
     try checkShelfWindowSizeStorage()
+    try checkShelfWindowChromePolicy()
+    try checkApplicationInstallation()
     try checkScreenshotTransferPayloads()
     try checkShelfCopyShortcuts()
     try checkCaptureTimestampFormatting()

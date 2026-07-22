@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Использование: ./script/publish_release.sh 0.5.13" >&2
+  echo "Использование: ./script/publish_release.sh 0.5.14" >&2
   exit 2
 fi
 
@@ -99,6 +99,8 @@ git push origin "$TAG"
 RELEASE_ASSETS=(
   "$DIST_DIR/ScreenshotApp-Bogdan-macOS-Universal.zip"
   "$DIST_DIR/ScreenshotApp-Bogdan-macOS-Universal.zip.sha256"
+  "$DIST_DIR/ScreenshotApp-Bogdan-macOS-Universal.dmg"
+  "$DIST_DIR/ScreenshotApp-Bogdan-macOS-Universal.dmg.sha256"
   "$DIST_DIR/appcast.xml"
 )
 

@@ -5,9 +5,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let updateService = UpdateService()
     private var settingsController: SettingsWindowController?
+    private let installationCoordinator = ApplicationInstallationCoordinator()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if installationCoordinator.offerInstallationIfNeeded() { return }
         settingsController = SettingsWindowController(model: model, updateService: updateService)
         let shelf = ShelfPanelController(model: model, onOpenSettings: { [weak self] in
             self?.showSettings()

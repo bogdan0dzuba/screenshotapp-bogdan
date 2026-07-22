@@ -5,14 +5,26 @@ import SwiftUI
 struct ShelfView: View {
     @ObservedObject var model: AppModel
     let onOpenSettings: () -> Void
+    let onClose: () -> Void
+    let onMinimize: () -> Void
+    let onToggleFullScreen: () -> Void
     @ObservedObject private var history: HistoryStore
     @ObservedObject private var preferences: AppPreferences
     @State private var splitDragStartFraction: Double?
     @State private var splitDividerCursorIsActive = false
 
-    init(model: AppModel, onOpenSettings: @escaping () -> Void) {
+    init(
+        model: AppModel,
+        onOpenSettings: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onMinimize: @escaping () -> Void,
+        onToggleFullScreen: @escaping () -> Void
+    ) {
         self.model = model
         self.onOpenSettings = onOpenSettings
+        self.onClose = onClose
+        self.onMinimize = onMinimize
+        self.onToggleFullScreen = onToggleFullScreen
         _history = ObservedObject(wrappedValue: model.history)
         _preferences = ObservedObject(wrappedValue: model.preferences)
     }
@@ -29,6 +41,7 @@ struct ShelfView: View {
             isCollapsed: model.shelfState == .collapsed,
             transparency: model.preferences.shelfTransparency
         )
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     private var collapsedBody: some View {
@@ -177,8 +190,14 @@ struct ShelfView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 3) {
             shelfToggleButton
+            ShelfWindowControls(
+                onClose: onClose,
+                onMinimize: onMinimize,
+                onToggleFullScreen: onToggleFullScreen
+            )
+            .padding(.trailing, 2)
             Image(systemName: "rectangle.stack.fill")
                 .foregroundStyle(Color.secondary)
                 .help("История снимков")
@@ -194,7 +213,7 @@ struct ShelfView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: true, vertical: false)
                 .help("Текущая версия: \(AppIdentity.versionDescription)")
                 .accessibilityLabel("Текущая версия \(AppIdentity.versionDescription)")
             ShelfWindowDragHandle()
@@ -222,7 +241,8 @@ struct ShelfView: View {
                 .help("Очистить историю и переместить файлы в Корзину")
                 .disabled(history.items.isEmpty)
         }
-        .padding(.horizontal, 6)
+        .padding(.leading, ShelfMetrics.collapsedHorizontalPadding)
+        .padding(.trailing, 5)
         .frame(height: ShelfMetrics.headerHeight)
     }
 
@@ -356,6 +376,59 @@ struct ShelfView: View {
         Button("Показать в Finder") { model.reveal(item) }
         Divider()
         Button("Удалить", role: .destructive) { model.delete(item) }
+    }
+}
+
+private struct ShelfWindowControls: View {
+    let onClose: () -> Void
+    let onMinimize: () -> Void
+    let onToggleFullScreen: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            control(
+                color: Color.red,
+                systemName: "xmark",
+                label: "Закрыть полку",
+                action: onClose
+            )
+            control(
+                color: Color.yellow,
+                systemName: "minus",
+                label: "Свернуть окно",
+                action: onMinimize
+            )
+            control(
+                color: Color.green,
+                systemName: "arrow.up.left.and.arrow.down.right",
+                label: "Полноэкранный режим",
+                action: onToggleFullScreen
+            )
+        }
+        .shelfFirstClickEnabled()
+    }
+
+    private func control(
+        color: Color,
+        systemName: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .overlay(Circle().stroke(.black.opacity(0.18), lineWidth: 0.5))
+                Image(systemName: systemName)
+                    .font(.system(size: 6, weight: .black))
+                    .foregroundStyle(.black.opacity(0.62))
+            }
+            .frame(width: 12, height: 12)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

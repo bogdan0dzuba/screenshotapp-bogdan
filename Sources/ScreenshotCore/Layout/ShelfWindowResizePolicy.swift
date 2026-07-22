@@ -2,8 +2,9 @@ public enum ShelfWindowResizePolicy {
     public static func shouldPersist(
         isExpanded: Bool,
         isApplyingPresentation: Bool,
-        isLiveResize: Bool
+        isLiveResize: Bool,
+        isFullScreen: Bool
     ) -> Bool {
-        isExpanded && !isApplyingPresentation && isLiveResize
+        isExpanded && !isApplyingPresentation && isLiveResize && !isFullScreen
     }
 }

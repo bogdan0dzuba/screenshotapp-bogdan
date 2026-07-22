@@ -29,7 +29,14 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         )
         panel = KeyableShelfPanel(
             contentRect: CGRect(origin: .zero, size: initialPanelSize),
-            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            styleMask: [
+                .titled,
+                .closable,
+                .miniaturizable,
+                .resizable,
+                .fullSizeContentView,
+                .nonactivatingPanel,
+            ],
             backing: .buffered,
             defer: false
         )
@@ -40,14 +47,25 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary, .transient]
+        panel.title = AppIdentity.displayName
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.titlebarSeparatorStyle = .none
         panel.isMovableByWindowBackground = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.minSize = ShelfMetrics.minimumExpandedSize
         panel.delegate = self
         panel.contentView = ShelfHostingView(
-            rootView: ShelfView(model: model, onOpenSettings: onOpenSettings)
+            rootView: ShelfView(
+                model: model,
+                onOpenSettings: onOpenSettings,
+                onClose: { [weak panel] in panel?.orderOut(nil) },
+                onMinimize: { [weak panel] in panel?.miniaturize(nil) },
+                onToggleFullScreen: { [weak self] in self?.toggleFullScreen(nil) }
+            )
         )
+        setStandardWindowControlsVisible(false)
         copyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   ShelfKeyboardShortcut.shouldCopy(
@@ -96,14 +114,22 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
 
         switch model.shelfState {
         case .expanded:
+            configureWindowChrome(
+                showsCustomControls: ShelfWindowChromePolicy.showsCustomControls(in: model.shelfState)
+            )
             configureResizing(isEnabled: true)
             show(size: expandedSize)
         case .collapsed:
+            configureWindowChrome(
+                showsCustomControls: ShelfWindowChromePolicy.showsCustomControls(in: model.shelfState)
+            )
             configureResizing(isEnabled: false)
             show(size: ShelfMetrics.collapsedSize)
         case let .temporarilyHidden(until):
+            setStandardWindowControlsVisible(false)
             if until <= Date() {
                 model.shelfState = .collapsed
+                configureWindowChrome(showsCustomControls: false)
                 configureResizing(isEnabled: false)
                 show(size: ShelfMetrics.collapsedSize)
             } else {
@@ -117,6 +143,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
                 }
             }
         case .hiddenUntilNextCapture:
+            setStandardWindowControlsVisible(false)
             panel.orderOut(nil)
         }
     }
@@ -125,14 +152,33 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         guard ShelfWindowResizePolicy.shouldPersist(
             isExpanded: model.shelfState == .expanded,
             isApplyingPresentation: isApplyingPresentation,
-            isLiveResize: panel.inLiveResize
+            isLiveResize: panel.inLiveResize,
+            isFullScreen: panel.styleMask.contains(.fullScreen)
         ) else { return }
         persistExpandedSize()
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
-        guard model.shelfState == .expanded, !isApplyingPresentation else { return }
+        guard model.shelfState == .expanded,
+              !isApplyingPresentation,
+              !panel.styleMask.contains(.fullScreen) else { return }
         persistExpandedSize()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        panel.orderOut(nil)
+        return false
+    }
+
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        panel.isFloatingPanel = false
+        panel.level = .normal
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        updatePresentation()
     }
 
     private func persistExpandedSize() {
@@ -143,6 +189,9 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
 
     private func show(size: CGSize) {
         guard let screen = targetScreen() else { return }
+        if panel.isMiniaturized {
+            panel.deminiaturize(nil)
+        }
         let targetSize = model.shelfState == .expanded
             ? ShelfMetrics.constrainedExpandedSize(size, visibleSize: screen.visibleFrame.size)
             : ShelfMetrics.collapsedSize
@@ -157,6 +206,41 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         isApplyingPresentation = false
         hasBeenPresented = true
         panel.orderFrontRegardless()
+    }
+
+    private func configureWindowChrome(showsCustomControls: Bool) {
+        if showsCustomControls {
+            panel.styleMask.remove(.borderless)
+            panel.styleMask.insert(.titled)
+            panel.styleMask.insert(.closable)
+            panel.styleMask.insert(.miniaturizable)
+            panel.styleMask.insert(.fullSizeContentView)
+        } else {
+            setStandardWindowControlsVisible(false)
+            panel.styleMask.remove(.titled)
+            panel.styleMask.remove(.closable)
+            panel.styleMask.remove(.miniaturizable)
+            panel.styleMask.remove(.fullSizeContentView)
+            panel.styleMask.insert(.borderless)
+        }
+        setStandardWindowControlsVisible(false)
+    }
+
+    private func setStandardWindowControlsVisible(_ isVisible: Bool) {
+        for buttonType in [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ] {
+            panel.standardWindowButton(buttonType)?.isHidden = !isVisible
+            panel.standardWindowButton(buttonType)?.isEnabled = isVisible
+        }
+    }
+
+    @objc private func toggleFullScreen(_ sender: Any?) {
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        panel.toggleFullScreen(sender)
     }
 
     private func configureResizing(isEnabled: Bool) {
@@ -195,7 +279,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
 
 private final class KeyableShelfPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    override var canBecomeMain: Bool { true }
 }
 
 private final class ShelfHostingView<Content: View>: NSHostingView<Content> {

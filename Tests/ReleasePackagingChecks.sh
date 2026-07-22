@@ -3,7 +3,7 @@ set -euo pipefail
 
 RELEASE_SCRIPT="${1:-script/build_release.sh}"
 ARCHIVE="${2:-}"
-EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.13}"
+EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.14}"
 
 require_script() {
   local pattern="$1"
@@ -20,6 +20,8 @@ require_script "/usr/bin/lipo -create" "release does not combine both architectu
 require_script "/usr/bin/lipo -archs" "release does not verify the universal binary"
 require_script "/usr/bin/codesign --verify" "release does not verify the app signature"
 require_script "/usr/bin/ditto -c -k" "release is not packaged as a macOS ZIP"
+require_script "/usr/bin/hdiutil create" "release has no normal macOS disk image installer"
+require_script 'ln -s /Applications' "installer image has no Applications shortcut"
 require_script "/usr/bin/shasum -a 256" "release does not publish a checksum"
 
 if [[ -n "$ARCHIVE" ]]; then

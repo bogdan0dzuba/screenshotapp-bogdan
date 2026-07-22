@@ -94,6 +94,7 @@ bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
+bash "$ROOT_DIR/Tests/ApplicationInstallationChecks.sh"
 BUILD_BINARY="$(swift build --disable-sandbox --show-bin-path)/$BUILD_PRODUCT"
 
 rm -rf "$STAGE_DIR"
@@ -127,9 +128,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.13</string>
+  <string>0.5.14</string>
   <key>CFBundleVersion</key>
-  <string>27</string>
+  <string>28</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>

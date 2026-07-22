@@ -31,15 +31,66 @@ reject_view() {
   fi
 }
 
+require_toggle_before_window_controls() {
+  local toggle_line
+  local controls_line
+  toggle_line="$(/usr/bin/grep -n '^[[:space:]]*shelfToggleButton$' "$SHELF_VIEW" | /usr/bin/tail -n 1 | /usr/bin/cut -d: -f1)"
+  controls_line="$(/usr/bin/grep -n '^[[:space:]]*ShelfWindowControls(' "$SHELF_VIEW" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+  if [[ -z "$toggle_line" || -z "$controls_line" || "$toggle_line" -ge "$controls_line" ]]; then
+    echo "ShelfPanelInteractionChecks: shelf toggle moves when expanded instead of staying left of close" >&2
+    exit 1
+  fi
+}
+
 require_source ".nonactivatingPanel" "shelf panel activates the app before delivering the first click"
+require_source ".titled" "expanded shelf has no native macOS title-bar controls"
+require_source ".closable" "expanded shelf has no native close control"
+require_source ".miniaturizable" "expanded shelf has no native minimize control"
+require_source ".fullSizeContentView" "native controls add an opaque title bar above the glass shelf"
+require_source "titlebarAppearsTransparent = true" "native title bar does not blend into the glass shelf"
+require_source "titleVisibility = .hidden" "shelf wastes title-bar space on a duplicate app name"
+require_source ".fullScreenPrimary" "green window control cannot enter full screen"
+require_source "panel.styleMask.insert(.borderless)" \
+  "collapsed shelf retains the native title-bar minimum height"
+require_source "panel.styleMask.remove(.titled)" \
+  "collapsed shelf does not return to its compact borderless chrome"
+require_source "ShelfWindowChromePolicy.showsCustomControls" \
+  "custom window controls are not hidden in compact shelf states"
+require_source "setStandardWindowControlsVisible(false)" \
+  "inactive native traffic lights remain visible as misleading gray dots"
+require_source "panel.deminiaturize(nil)" "a minimized shelf cannot be restored from the menu bar"
+require_source "func windowShouldClose" "closing the shelf destroys its recoverable window"
+require_source "panel.orderOut(nil)" "closing the shelf does not hide its window"
 require_source "becomesKeyOnlyIfNeeded = true" "shelf panel consumes the first click to become key"
 require_source "override func acceptsFirstMouse(for event: NSEvent?) -> Bool" "hosting view does not accept the first click"
 require_source "ShelfHostingView(" "first-click hosting view is not installed"
-require_source "rootView: ShelfView(model: model, onOpenSettings: onOpenSettings)" \
-  "shelf hosting view does not receive the working settings callback"
+require_source "onClose: { [weak panel] in panel?.orderOut(nil) }" \
+  "custom close control is not connected to the shelf window"
+require_source "onMinimize: { [weak panel] in panel?.miniaturize(nil) }" \
+  "custom minimize control is not connected to the shelf window"
+require_source "onToggleFullScreen: { [weak self] in self?.toggleFullScreen(nil) }" \
+  "custom full-screen control is not connected to the shelf window"
 require_source "isMovableByWindowBackground = false" "window background steals screenshot drag gestures"
 require_view "allowsWindowActivationEvents(true)" "SwiftUI toggle drops the activation click"
 require_view "ShelfMetrics.toggleHitTargetSize" "shelf toggle does not use the tested square hit target"
+require_view "ShelfWindowControls(" "expanded shelf has no custom macOS window controls"
+require_toggle_before_window_controls
+require_view '.padding(.leading, ShelfMetrics.collapsedHorizontalPadding)' \
+  "expanded shelf toggle does not keep the collapsed leading coordinate"
+require_view "Color.red" "close control is not visibly red when the app is inactive"
+require_view "Color.yellow" "minimize control is not visibly yellow when the app is inactive"
+require_view "Color.green" "full-screen control is not visibly green when the app is inactive"
+require_view 'systemName: "xmark"' "close control has no visible close symbol"
+require_view 'systemName: "minus"' "minimize control has no visible minimize symbol"
+require_view 'systemName: "arrow.up.left.and.arrow.down.right"' \
+  "full-screen control has no visible expansion symbol"
+require_view '.frame(width: 12, height: 12)' "custom traffic lights are larger than native macOS controls"
+require_view 'label: "Закрыть полку"' "close control has no accessibility label"
+require_view 'label: "Свернуть окно"' "minimize control has no accessibility label"
+require_view 'label: "Полноэкранный режим"' "full-screen control has no accessibility label"
+require_view '.accessibilityLabel(label)' "custom controls do not expose their labels to accessibility"
+require_view ".ignoresSafeArea(.container, edges: .top)" \
+  "native title bar remains a separate opaque strip above the glass shelf"
 require_view "shelfToggleHitTarget()" "shelf toggle only hit-tests the chevron pixels"
 require_view "ShelfToggleDragControl" "shelf toggle cannot distinguish a click from a drag"
 require_view "override func mouseDragged(with event: NSEvent)" "chevron does not track movement before deciding to toggle"
@@ -69,6 +120,7 @@ require_view '.font(.system(size: 16, weight: .bold, design: .rounded))' "expand
 require_view 'Text(model.hotKeyDescription)' "current capture hotkey is not shown beside the count"
 require_view '.font(.system(size: 13, weight: .semibold, design: .monospaced))' "expanded hotkey remains too small to read"
 require_view 'Text("v\(AppIdentity.versionDescription)")' "expanded shelf does not show the current app version"
+require_view '.fixedSize(horizontal: true, vertical: false)' "expanded app version is truncated by window controls"
 require_view '.help("Текущая версия: \(AppIdentity.versionDescription)")' "visible app version has no explanatory hover hint"
 reject_view 'Text(title).font(.system(size: 9))' "quick actions still waste screenshot space on labels"
 require_view '.labelStyle(.iconOnly)' "icon-only controls do not preserve semantic labels"
