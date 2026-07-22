@@ -1,67 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IDENTITY_NAME="ScreenshotApp Bogdan Local Signing"
 KEYCHAIN_PATH="$HOME/Library/Keychains/login.keychain-db"
+RELEASE_IDENTITY_NAME="ScreenshotApp Bogdan Local Signing"
+RELEASE_CERTIFICATE_SHA1="12894FED984452E3FC2AFFDA5758A65BAC1DD2D2"
+MODE="${1:---require-release}"
+
+if [[ "$MODE" != "--require-release" ]]; then
+  echo "usage: $0 --require-release" >&2
+  exit 2
+fi
+
+certificate_count() {
+  /usr/bin/security find-certificate -c "$RELEASE_IDENTITY_NAME" -p "$KEYCHAIN_PATH" 2>/dev/null \
+    | /usr/bin/grep -c 'BEGIN CERTIFICATE' || true
+}
 
 certificate_sha1() {
-  /usr/bin/security find-certificate -c "$IDENTITY_NAME" -Z "$KEYCHAIN_PATH" 2>/dev/null \
+  /usr/bin/security find-certificate -c "$RELEASE_IDENTITY_NAME" -Z "$KEYCHAIN_PATH" 2>/dev/null \
     | /usr/bin/awk '/SHA-1 hash:/ && !printed { print $3; printed = 1 }'
 }
 
-if [[ -f "$KEYCHAIN_PATH" ]]; then
-  EXISTING_SHA1="$(certificate_sha1)"
-  if [[ -n "$EXISTING_SHA1" ]]; then
-    printf '%s\n' "$EXISTING_SHA1"
-    exit 0
-  fi
-fi
-
-TEMP_DIR="$(/usr/bin/mktemp -d /private/tmp/ScreenshotApp-signing.XXXXXX)"
-cleanup() {
-  if [[ "$TEMP_DIR" == /private/tmp/ScreenshotApp-signing.* ]]; then
-    /bin/rm -rf -- "$TEMP_DIR"
-  fi
-}
-trap cleanup EXIT
-
-P12_PASSWORD="$(/usr/bin/uuidgen)"
-PRIVATE_KEY="$TEMP_DIR/private-key.pem"
-CERTIFICATE="$TEMP_DIR/certificate.pem"
-IDENTITY_ARCHIVE="$TEMP_DIR/identity.p12"
-
-/usr/bin/openssl req \
-  -new \
-  -newkey rsa:2048 \
-  -nodes \
-  -x509 \
-  -days 3650 \
-  -subj "/CN=$IDENTITY_NAME/O=Bogdan Local Development" \
-  -addext "basicConstraints=critical,CA:FALSE" \
-  -addext "keyUsage=critical,digitalSignature" \
-  -addext "extendedKeyUsage=codeSigning" \
-  -keyout "$PRIVATE_KEY" \
-  -out "$CERTIFICATE" \
-  >/dev/null 2>&1
-
-/usr/bin/openssl pkcs12 \
-  -export \
-  -inkey "$PRIVATE_KEY" \
-  -in "$CERTIFICATE" \
-  -name "$IDENTITY_NAME" \
-  -passout "pass:$P12_PASSWORD" \
-  -out "$IDENTITY_ARCHIVE"
-
-/usr/bin/security import "$IDENTITY_ARCHIVE" \
-  -k "$KEYCHAIN_PATH" \
-  -P "$P12_PASSWORD" \
-  -T /usr/bin/codesign \
-  >/dev/null
-
-NEW_SHA1="$(certificate_sha1)"
-if [[ -z "$NEW_SHA1" ]]; then
-  echo "Не удалось создать локальную identity для подписи" >&2
+if [[ "$(certificate_count)" != 1 ]]; then
+  echo "Не найдена единственная identity $RELEASE_IDENTITY_NAME; подпись выпуска остановлена" >&2
   exit 1
 fi
 
-printf '%s\n' "$NEW_SHA1"
+SIGNING_CERT_SHA1="$(certificate_sha1)"
+if [[ "$SIGNING_CERT_SHA1" != "$RELEASE_CERTIFICATE_SHA1" ]]; then
+  echo "Сертификат $RELEASE_IDENTITY_NAME изменился; подпись выпуска остановлена" >&2
+  exit 1
+fi
+
+if ! /usr/bin/security find-key \
+  -l "$RELEASE_IDENTITY_NAME" \
+  -s \
+  -t private \
+  "$KEYCHAIN_PATH" \
+  >/dev/null 2>&1; then
+  echo "Для $RELEASE_IDENTITY_NAME отсутствует приватный ключ; подпись выпуска остановлена" >&2
+  exit 1
+fi
+
+printf '%s\n' "$SIGNING_CERT_SHA1"

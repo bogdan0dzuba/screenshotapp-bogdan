@@ -5,8 +5,19 @@ BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="Богдан Скриншот"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.16}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-30}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.17}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-31}"
+SIGNING_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+SIGNING_IDENTITY_MODE="${SCREENSHOT_APP_SIGNING_IDENTITY_MODE:---require-release}"
+
+case "$SIGNING_IDENTITY_MODE" in
+  --require-release|--ci-adhoc)
+    ;;
+  *)
+    echo "Недопустимый режим подписи Universal-сборки: $SIGNING_IDENTITY_MODE" >&2
+    exit 2
+    ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -105,6 +116,11 @@ bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 bash "$ROOT_DIR/Tests/ApplicationInstallationChecks.sh"
+if [[ "$SIGNING_IDENTITY_MODE" == "--require-release" ]]; then
+  bash "$ROOT_DIR/Tests/LocalSigningIdentityChecks.sh" \
+    "$ROOT_DIR/script/ensure_local_signing_identity.sh" \
+    --require-release
+fi
 
 /bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$INTEL_BUILD_DIR" "$DMG_STAGE_DIR"
 mkdir -p "$DIST_DIR" "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
@@ -155,25 +171,27 @@ ARCHS="$(/usr/bin/lipo -archs "$APP_BINARY")"
 /usr/bin/plutil -insert SUAutomaticallyUpdate -bool YES "$INFO_PLIST"
 
 /usr/bin/xattr -cr "$APP_BUNDLE"
-if [[ -n "${SCREENSHOT_APP_SIGNING_IDENTITY:-}" ]]; then
-  /usr/bin/codesign \
-    --force \
-    --deep \
-    --options runtime \
-    --timestamp \
-    --sign "$SCREENSHOT_APP_SIGNING_IDENTITY" \
-    "$APP_FRAMEWORKS/Sparkle.framework"
-  /usr/bin/codesign \
-    --force \
-    --options runtime \
-    --timestamp \
-    --sign "$SCREENSHOT_APP_SIGNING_IDENTITY" \
-    "$APP_BUNDLE"
-else
-  echo "Developer ID не задан: используется ad-hoc подпись для открытой тестовой версии."
+if [[ "$SIGNING_IDENTITY_MODE" == "--ci-adhoc" ]]; then
   /usr/bin/codesign --force --sign - "$APP_BUNDLE"
+else
+  SIGNING_CERT_SHA1="$("$ROOT_DIR/script/ensure_local_signing_identity.sh" --require-release)"
+  DESIGNATED_REQUIREMENT="=designated => identifier \"$BUNDLE_ID\" and certificate leaf = H\"$SIGNING_CERT_SHA1\""
+  /usr/bin/codesign \
+    --force \
+    --keychain "$SIGNING_KEYCHAIN" \
+    --sign "$SIGNING_CERT_SHA1" \
+    --requirements "$DESIGNATED_REQUIREMENT" \
+    "$APP_BUNDLE"
 fi
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+if [[ "$SIGNING_IDENTITY_MODE" == "--ci-adhoc" ]]; then
+  SCREENSHOT_APP_ALLOW_ADHOC_SIGNING=1 \
+    bash "$ROOT_DIR/Tests/ReleasePackagingChecks.sh" "$ROOT_DIR/script/build_release.sh"
+else
+  SCREENSHOT_APP_EXPECTED_SIGNING_IDENTITY="ScreenshotApp Bogdan Local Signing" \
+    SCREENSHOT_APP_EXPECTED_SIGNING_CERTIFICATE_SHA1="$SIGNING_CERT_SHA1" \
+    bash "$ROOT_DIR/Tests/SigningChecks.sh" "$APP_BUNDLE"
+fi
 
 /bin/rm -f -- "$DELIVERABLE_ZIP" "$CHECKSUM_FILE" "$DELIVERABLE_DMG" "$DELIVERABLE_DMG.sha256"
 /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE" "$DELIVERABLE_ZIP"
@@ -193,7 +211,14 @@ ln -s /Applications "$DMG_STAGE_DIR/Программы"
   /usr/bin/shasum -a 256 "$DMG_NAME" >"$DMG_NAME.sha256"
 )
 
-bash "$ROOT_DIR/Tests/ReleasePackagingChecks.sh" "$ROOT_DIR/script/build_release.sh" "$DELIVERABLE_ZIP"
+if [[ "$SIGNING_IDENTITY_MODE" == "--ci-adhoc" ]]; then
+  SCREENSHOT_APP_ALLOW_ADHOC_SIGNING=1 \
+    bash "$ROOT_DIR/Tests/ReleasePackagingChecks.sh" "$ROOT_DIR/script/build_release.sh" "$DELIVERABLE_ZIP"
+else
+  SCREENSHOT_APP_EXPECTED_SIGNING_IDENTITY="ScreenshotApp Bogdan Local Signing" \
+    SCREENSHOT_APP_EXPECTED_SIGNING_CERTIFICATE_SHA1="$SIGNING_CERT_SHA1" \
+    bash "$ROOT_DIR/Tests/ReleasePackagingChecks.sh" "$ROOT_DIR/script/build_release.sh" "$DELIVERABLE_ZIP"
+fi
 
 echo "Готово: $DELIVERABLE_ZIP"
 echo "Установочный образ: $DELIVERABLE_DMG"

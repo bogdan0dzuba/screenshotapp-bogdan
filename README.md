@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.16-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.16)
+[![Версия](https://img.shields.io/badge/версия-v0.5.17-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.17)
 [![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
 
 ## Как это выглядит
@@ -82,7 +82,7 @@
 
 ### Почему macOS показывает предупреждение
 
-Открытая тестовая сборка имеет корректную ad-hoc подпись, но пока не подписана Apple Developer ID и не нотарифицирована. Поэтому Gatekeeper может потребовать первый запуск через правую кнопку -> «Открыть». Для обычного запуска по двойному клику без этого предупреждения нужен сертификат Apple Developer ID и нотарификация.
+Открытая тестовая сборка подписана одной постоянной локальной подписью, но пока не подписана Apple Developer ID и не нотарифицирована. Поэтому Gatekeeper может потребовать первый запуск через правую кнопку -> «Открыть». Для обычного запуска по двойному клику без этого предупреждения нужен сертификат Apple Developer ID и нотарификация.
 
 ## Быстрый сценарий
 
@@ -109,9 +109,9 @@
 
 ## Автообновление
 
-GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.16`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем раз в сутки. Обычное обновление автоматически загружается, проверяется, устанавливается и перезапускает приложение; ручная проверка остается в настройках.
+GitHub Actions проверяет проект и Universal-сборку при каждом обновлении `main`. Релиз публикуется одной командой `./script/publish_release.sh 0.5.17`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает `appcast.xml` и никогда не передается GitHub. Приложение проверяет этот канал через Sparkle при каждом запуске и затем раз в сутки. Обычное обновление автоматически загружается, проверяется, устанавливается и перезапускает приложение; ручная проверка остается в настройках.
 
-Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть», а macOS может повторно запросить разрешение «Запись экрана» после крупных обновлений.
+Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть». При переходе со старой ad-hoc версии macOS может один раз повторно запросить «Запись экрана»; следующие выпуски используют ту же подпись и не должны сбрасывать это разрешение.
 
 ## Сборка из исходников
 

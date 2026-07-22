@@ -28,7 +28,7 @@ require_text "$README" "docs/assets/shelf-demo.gif" "README has no shelf demonst
 require_text "$README" "docs/assets/hotkey-demo.gif" "README has no hotkey demonstration"
 require_text "$README" "docs/assets/editor-demo.gif" "README has no editor demonstration"
 require_text "$README" "docs/assets/scroll-capture-demo.gif" "README has no scrolling-capture demonstration"
-require_text "$README" "v0.5.16" "README does not name the current public version"
+require_text "$README" "v0.5.17" "README does not name the current public version"
 require_text "$README" "21 июля, 10.32 - Telegram.png" "README does not document readable local filenames"
 require_text "$README" "Автоматически удалять старые снимки" "README does not document unlimited retention"
 require_text "$README" "Запись экрана" "README does not explain the screen-recording permission"
@@ -59,7 +59,11 @@ require_text "$README" "SettingsWindowChecks.sh" "README omits the settings-wind
 
 require_text "$WORKFLOW" "runs-on: macos-15" "workflow does not use a supported macOS runner"
 require_text "$WORKFLOW" "./script/build_release.sh" "workflow does not create a Universal release"
+require_text "$WORKFLOW" "SCREENSHOT_APP_SIGNING_IDENTITY_MODE: --ci-adhoc" \
+  "workflow can accidentally use the production signing identity"
 require_text "$PUBLISH_SCRIPT" "gh release create" "local release script does not publish tagged releases"
+require_text "$PUBLISH_SCRIPT" "SCREENSHOT_APP_SIGNING_IDENTITY_MODE=--require-release" \
+  "public release can accidentally use a disposable CI signing identity"
 require_text "$PUBLISH_SCRIPT" 'ScreenshotApp-Bogdan-macOS-Universal.dmg"' \
   "local release script does not upload the DMG installer"
 require_text "$PUBLISH_SCRIPT" 'ScreenshotApp-Bogdan-macOS-Universal.dmg.sha256"' \

@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Использование: ./script/publish_release.sh 0.5.16" >&2
+  echo "Использование: ./script/publish_release.sh 0.5.17" >&2
   exit 2
 fi
 
@@ -32,7 +32,9 @@ git fetch origin main
   exit 1
 }
 
-SCREENSHOT_APP_VERSION="$VERSION" "$ROOT_DIR/script/build_release.sh"
+SCREENSHOT_APP_VERSION="$VERSION" \
+  SCREENSHOT_APP_SIGNING_IDENTITY_MODE=--require-release \
+  "$ROOT_DIR/script/build_release.sh"
 
 SPARKLE_BIN_DIR=""
 for candidate in "$RELEASE_SPARKLE_BIN_DIR" "$LOCAL_SPARKLE_BIN_DIR"; do

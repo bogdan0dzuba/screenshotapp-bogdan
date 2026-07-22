@@ -36,9 +36,11 @@ jobs:
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.15"
+          version="0.5.17"
           echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Собрать Universal-приложение
+        env:
+          SCREENSHOT_APP_SIGNING_IDENTITY_MODE: --ci-adhoc
         run: ./script/build_release.sh

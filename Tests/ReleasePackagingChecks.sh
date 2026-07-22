@@ -3,7 +3,7 @@ set -euo pipefail
 
 RELEASE_SCRIPT="${1:-script/build_release.sh}"
 ARCHIVE="${2:-}"
-EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.16}"
+EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-0.5.17}"
 
 require_script() {
   local pattern="$1"
@@ -23,6 +23,17 @@ require_script "/usr/bin/ditto -c -k" "release is not packaged as a macOS ZIP"
 require_script "/usr/bin/hdiutil create" "release has no normal macOS disk image installer"
 require_script 'ln -s /Applications' "installer image has no Applications shortcut"
 require_script "/usr/bin/shasum -a 256" "release does not publish a checksum"
+require_script 'ensure_local_signing_identity.sh' "release does not create or reuse a stable signing identity"
+require_script 'SCREENSHOT_APP_SIGNING_IDENTITY_MODE:---require-release' \
+  "release can silently replace its stable signing identity"
+require_script '--ci-adhoc' \
+  "CI has no explicitly isolated ad-hoc signing mode"
+require_script '"$SIGNING_IDENTITY_MODE"' \
+  "release does not pass its signing mode to identity validation"
+require_script 'DESIGNATED_REQUIREMENT=' "release has no stable designated requirement"
+require_script '--requirements "$DESIGNATED_REQUIREMENT"' "release does not embed its stable designated requirement"
+require_script 'if [[ "$SIGNING_IDENTITY_MODE" == "--ci-adhoc" ]]' \
+  "ad-hoc signing is not restricted to CI"
 
 if [[ -n "$ARCHIVE" ]]; then
   if [[ ! -f "$ARCHIVE" ]]; then
@@ -47,6 +58,15 @@ if [[ -n "$ARCHIVE" ]]; then
     exit 1
   }
   /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+  if [[ "${SCREENSHOT_APP_ALLOW_ADHOC_SIGNING:-0}" == 1 ]]; then
+    /usr/bin/codesign -dvvv "$APP_PATH" 2>&1 | /usr/bin/grep -Fq "Signature=adhoc" || {
+      echo "ReleasePackagingChecks: CI archive is not ad-hoc signed" >&2
+      exit 1
+    }
+  else
+    ROOT_DIR="$(cd "$(dirname "$RELEASE_SCRIPT")/.." && pwd)"
+    bash "$ROOT_DIR/Tests/SigningChecks.sh" "$APP_PATH"
+  fi
   [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw "$APP_PATH/Contents/Info.plist")" == "Богдан Скриншот" ]] || {
     echo "ReleasePackagingChecks: public app name is incorrect" >&2
     exit 1

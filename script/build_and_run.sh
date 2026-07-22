@@ -128,9 +128,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.16</string>
+  <string>0.5.17</string>
   <key>CFBundleVersion</key>
-  <string>30</string>
+  <string>31</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
@@ -158,7 +158,7 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 /usr/bin/xattr -cr "$APP_BUNDLE"
-SIGNING_CERT_SHA1="$("$ROOT_DIR/script/ensure_local_signing_identity.sh")"
+SIGNING_CERT_SHA1="$("$ROOT_DIR/script/ensure_local_signing_identity.sh" --require-release)"
 DESIGNATED_REQUIREMENT="=designated => identifier \"$BUNDLE_ID\" and certificate leaf = H\"$SIGNING_CERT_SHA1\""
 /usr/bin/codesign \
   --force \
