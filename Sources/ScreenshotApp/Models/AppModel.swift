@@ -40,6 +40,9 @@ final class AppModel: ObservableObject {
     private var pendingCaptureResults: [PendingCaptureResult] = []
     private var nextCaptureSequence: UInt64 = 0
     private var latestPresentedCaptureSequence: UInt64 = 0
+    private var activeAreaCaptureTask: Task<Void, Error>?
+    private var activeAreaCaptureID: UUID?
+    private var restartAreaCaptureAfterCancellation = false
 
     init() {
         let preferences = AppPreferences()
@@ -145,7 +148,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard let request = prepareCaptureRequest() else {
-            CaptureTelemetry.logger.notice("area_capture_ignored_busy")
+            recoverAreaCaptureFromHotKey()
             return
         }
         CaptureTelemetry.logger.info("area_capture_started")
@@ -156,7 +159,9 @@ final class AppModel: ObservableObject {
                 try captureService.write(selection.image, to: request.temporaryURL)
             }.value
         }
-        finishCapture(request, task: captureTask)
+        activeAreaCaptureTask = captureTask
+        activeAreaCaptureID = request.id
+        finishCapture(request, task: captureTask, isAreaCapture: true)
     }
 
     private func captureWithSystemUI(_ mode: CaptureMode) {
@@ -165,7 +170,7 @@ final class AppModel: ObservableObject {
         let captureTask = Task.detached(priority: .userInitiated) {
             try await captureService.capture(mode, to: request.temporaryURL)
         }
-        finishCapture(request, task: captureTask)
+        finishCapture(request, task: captureTask, isAreaCapture: false)
     }
 
     private func prepareCaptureRequest() -> CaptureRequest? {
@@ -183,21 +188,36 @@ final class AppModel: ObservableObject {
 
     private func finishCapture(
         _ request: CaptureRequest,
-        task captureTask: Task<Void, Error>
+        task captureTask: Task<Void, Error>,
+        isAreaCapture: Bool
     ) {
         Task {
-            defer { try? FileManager.default.removeItem(at: request.temporaryURL) }
+            defer {
+                try? FileManager.default.removeItem(at: request.temporaryURL)
+                if isAreaCapture, activeAreaCaptureID == request.id {
+                    activeAreaCaptureTask = nil
+                    activeAreaCaptureID = nil
+                }
+            }
             let capturedAt: Date
             do {
                 try await captureTask.value
                 capturedAt = Date()
                 guard beginImport(for: request.id) else { return }
             } catch CaptureError.cancelled {
+                let shouldRestart = isAreaCapture && restartAreaCaptureAfterCancellation
+                restartAreaCaptureAfterCancellation = false
                 cancelCapture(id: request.id)
-                statusMessage = "Захват отменен"
                 resumeShelfAndPresentPendingResults()
+                if shouldRestart {
+                    statusMessage = "Повторно открываю выбор области…"
+                    captureArea()
+                } else {
+                    statusMessage = "Захват отменен"
+                }
                 return
             } catch {
+                restartAreaCaptureAfterCancellation = false
                 cancelCapture(id: request.id)
                 resumeShelfAndPresentPendingResults()
                 present(error)
@@ -221,6 +241,25 @@ final class AppModel: ObservableObject {
                     statusMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    private func recoverAreaCaptureFromHotKey() {
+        switch AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: activeAreaCaptureTask != nil) {
+        case .start:
+            CaptureTelemetry.logger.notice("area_capture_ignored_busy")
+        case .cancelAndRestart:
+            guard !restartAreaCaptureAfterCancellation else {
+                CaptureTelemetry.logger.notice("area_capture_restart_already_requested")
+                return
+            }
+            restartAreaCaptureAfterCancellation = true
+            statusMessage = "Перезапускаю выбор области…"
+            activeAreaCaptureTask?.cancel()
+            let cancelledVisibleSelection = regionSelectionController?.cancelActiveSelection() ?? false
+            CaptureTelemetry.logger.notice(
+                "area_capture_restart_requested visible_selection=\(cancelledVisibleSelection, privacy: .public)"
+            )
         }
     }
 

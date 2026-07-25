@@ -4,6 +4,7 @@ set -euo pipefail
 REGION="${1:-Sources/ScreenshotApp/Windowing/RegionSelectionController.swift}"
 SCROLL="${2:-Sources/ScreenshotApp/Windowing/ScrollCaptureController.swift}"
 SCROLL_VIEW="${3:-Sources/ScreenshotApp/Views/ScrollCaptureControlsView.swift}"
+MODEL="${4:-Sources/ScreenshotApp/Models/AppModel.swift}"
 
 require_text() {
   local file="$1"
@@ -25,6 +26,16 @@ require_text "$REGION" 'panel.onCancel = ' \
   "selection panel has no Escape fallback when its content responder changes"
 require_text "$REGION" 'panel.makeFirstResponder(overlay)' \
   "selection overlay is not the keyboard responder"
+require_text "$REGION" 'func cancelActiveSelection() -> Bool' \
+  "a repeated global hotkey cannot cancel an invisible area selector"
+require_text "$MODEL" 'recoverAreaCaptureFromHotKey()' \
+  "a repeated global hotkey is still silently ignored while an area capture is active"
+require_text "$MODEL" 'activeAreaCaptureTask?.cancel()' \
+  "the active area capture is not cancelled before retrying the hotkey"
+require_text "$MODEL" 'cancelActiveSelection()' \
+  "the active selector is not dismissed before retrying the hotkey"
+require_text "$MODEL" 'restartAreaCaptureAfterCancellation' \
+  "restarting a stuck selector can lose the next requested capture"
 require_text "$SCROLL" 'KeyableScrollCapturePanel(' \
   "scroll capture controls cannot receive keyboard cancellation"
 require_text "$SCROLL" 'panel.makeKeyAndOrderFront(nil)' \

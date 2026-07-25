@@ -347,6 +347,17 @@ private func checkCaptureCompletionPolicy() throws {
     try expect(CaptureCompletionPolicy.standard.revealsShelf, "a finished screenshot remains available on the shelf")
 }
 
+private func checkAreaCaptureRecoveryPolicy() throws {
+    try expect(
+        AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: false) == .start,
+        "an idle hotkey starts a new area capture"
+    )
+    try expect(
+        AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: true) == .cancelAndRestart,
+        "a repeated hotkey recovers a stuck area capture instead of being ignored"
+    )
+}
+
 private func checkCaptureProcessOutcome() throws {
     try expect(
         CaptureProcessOutcome.resolve(terminationStatus: 0, outputExists: false) == .cancelled,
@@ -1331,6 +1342,7 @@ do {
     try checkOverlapMatching()
     try checkAutomaticScrollFrameSelection()
     try checkCaptureCompletionPolicy()
+    try checkAreaCaptureRecoveryPolicy()
     try checkCaptureProcessOutcome()
     try checkImageFileMetadata()
     try checkCaptureActivityState()

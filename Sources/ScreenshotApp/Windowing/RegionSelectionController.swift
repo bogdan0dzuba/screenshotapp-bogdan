@@ -16,14 +16,23 @@ final class RegionSelectionController {
 
     func selectRegion(using captureService: CaptureService) async throws -> RegionSelection {
         if continuation != nil { throw CaptureError.cancelled }
+        if Task.isCancelled { throw CaptureError.cancelled }
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
         guard let screen else { throw CaptureError.cancelled }
         let backdropImage = try await captureService.captureFrozenScreen(rect: captureRect(for: screen))
+        if Task.isCancelled { throw CaptureError.cancelled }
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             presentOverlay(on: screen, backdropImage: backdropImage)
         }
+    }
+
+    @discardableResult
+    func cancelActiveSelection() -> Bool {
+        guard continuation != nil else { return false }
+        finish(.failure(CaptureError.cancelled))
+        return true
     }
 
     private func presentOverlay(on screen: NSScreen, backdropImage: CGImage) {
