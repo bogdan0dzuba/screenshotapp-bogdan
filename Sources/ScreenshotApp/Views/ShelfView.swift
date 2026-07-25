@@ -480,7 +480,6 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
         } else {
             let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
             content
-                .environment(\.colorScheme, .dark)
                 .background { fallbackBackground(shape: shape, tintOpacity: 0.46) }
                 .clipShape(shape)
         }

@@ -154,6 +154,11 @@ reject_view '.glassEffect(.clear, in: shape)' "expanded shelf is still forced to
 require_view 'transparency: model.preferences.shelfTransparency' "glass does not react to the saved transparency preference"
 require_view '1 - transparency' "transparency preference is not mapped to the glass background"
 reject_view '.opacity(model.preferences.shelfTransparency)' "transparency incorrectly fades text and controls"
+dark_scheme_count="$(/usr/bin/grep -Fc '.environment(\.colorScheme, .dark)' "$SHELF_VIEW" || true)"
+if [[ "$dark_scheme_count" -ne 2 ]]; then
+  echo "ShelfPanelInteractionChecks: expanded transparent shelf forces white text instead of adaptive system contrast" >&2
+  exit 1
+fi
 require_view "ZoomableCapturePreview" "expanded shelf preview cannot be magnified"
 require_view "ScrollView([.horizontal, .vertical])" "magnified shelf preview cannot be panned"
 require_view "MagnifyGesture" "expanded shelf preview has no native trackpad pinch gesture"

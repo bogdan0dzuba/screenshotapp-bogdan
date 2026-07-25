@@ -25,6 +25,38 @@ APP_BINARY="$APP_MACOS/$BUILD_PRODUCT"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON_SOURCE="$ROOT_DIR/Assets/AppIcon.icns"
 BUILD_CACHE_DIR="/private/tmp/ScreenshotApp-Bogdan-build-cache-$(id -u)"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+TRASH_DIR="${SCREENSHOT_APP_TRASH_DIR:-$HOME/.Trash}"
+
+unregister_bundle() {
+  local bundle_path="$1"
+  if [[ -x "$LSREGISTER" ]]; then
+    "$LSREGISTER" -u "$bundle_path" >/dev/null 2>&1 || true
+  fi
+}
+
+unregister_trash_duplicates() {
+  local candidate
+  local candidate_bundle_id
+  [[ -d "$TRASH_DIR" ]] || return
+
+  while IFS= read -r -d '' candidate; do
+    candidate_bundle_id="$(
+      /usr/bin/plutil -extract CFBundleIdentifier raw "$candidate/Contents/Info.plist" 2>/dev/null || true
+    )"
+    if [[ "$candidate_bundle_id" == "$BUNDLE_ID" ]]; then
+      unregister_bundle "$candidate"
+    fi
+  done < <(/usr/bin/find "$TRASH_DIR" -maxdepth 1 -type d -name '*.app' -print0 2>/dev/null)
+}
+
+cleanup_stage() {
+  unregister_bundle "$APP_BUNDLE"
+  unregister_bundle "$STAGE_DIR/archive-verify/$APP_NAME.app"
+  /bin/rm -rf -- "$STAGE_DIR"
+}
+
+trap cleanup_stage EXIT
 
 prepare_swift_environment() {
   mkdir -p "$BUILD_CACHE_DIR/clang" "$BUILD_CACHE_DIR/swiftpm"
@@ -84,7 +116,7 @@ pkill -x "$PROCESS_NAME" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 prepare_swift_environment
-swift build --disable-sandbox
+swift build --disable-sandbox --product "$BUILD_PRODUCT"
 bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/HoverPreservationChecks.sh"
@@ -170,13 +202,17 @@ DESIGNATED_REQUIREMENT="=designated => identifier \"$BUNDLE_ID\" and certificate
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 bash "$ROOT_DIR/Tests/SigningChecks.sh" "$APP_BUNDLE"
 
+unregister_bundle "$INSTALLED_APP"
 rm -rf "$INSTALLED_APP"
 /usr/bin/ditto --norsrc "$APP_BUNDLE" "$INSTALLED_APP"
 /usr/bin/xattr -cr "$INSTALLED_APP"
 /usr/bin/codesign --verify --deep --strict "$INSTALLED_APP"
+unregister_bundle "$LEGACY_INSTALLED_APP"
 if [[ "$LEGACY_INSTALLED_APP" != "$INSTALLED_APP" && -d "$LEGACY_INSTALLED_APP" ]]; then
   /bin/rm -rf -- "$LEGACY_INSTALLED_APP"
 fi
+unregister_trash_duplicates
+"$LSREGISTER" -f "$INSTALLED_APP" >/dev/null 2>&1 || true
 rm -f "$DELIVERABLE_ZIP"
 /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE" "$DELIVERABLE_ZIP"
 

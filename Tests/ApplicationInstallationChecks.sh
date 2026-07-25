@@ -3,6 +3,7 @@ set -euo pipefail
 
 DELEGATE="${1:-Sources/ScreenshotApp/App/AppDelegate.swift}"
 COORDINATOR="${2:-Sources/ScreenshotApp/Services/ApplicationInstallationCoordinator.swift}"
+LOCAL_BUILD="${3:-script/build_and_run.sh}"
 
 require_text() {
   local file="$1"
@@ -28,5 +29,13 @@ require_text "$COORDINATOR" "openApplication(at:" \
   "installed copy is not launched after installation"
 require_text "$COORDINATOR" "NSApp.terminate(nil)" \
   "temporary downloaded process remains running after installation"
+require_text "$LOCAL_BUILD" 'trap cleanup_stage EXIT' \
+  "local build leaves temporary app bundles discoverable by LaunchServices"
+require_text "$LOCAL_BUILD" 'unregister_bundle "$APP_BUNDLE"' \
+  "local build does not unregister its staged app bundle"
+require_text "$LOCAL_BUILD" 'unregister_bundle "$LEGACY_INSTALLED_APP"' \
+  "legacy app registration can remain as a duplicate search result"
+require_text "$LOCAL_BUILD" "unregister_trash_duplicates" \
+  "backup app bundles in Trash can remain visible as duplicate search results"
 
 echo "ApplicationInstallationChecks: OK"
