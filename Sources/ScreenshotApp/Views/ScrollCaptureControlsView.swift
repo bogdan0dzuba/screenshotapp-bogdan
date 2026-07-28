@@ -24,13 +24,8 @@ struct ScrollCaptureControlsView: View {
                     .accessibilityLabel("Отменить снимок с прокруткой")
             }
             HStack(spacing: 8) {
-                if controller.isProcessingFrame {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: statusSymbol)
-                        .foregroundStyle(statusColor)
-                }
+                Image(systemName: statusSymbol)
+                    .foregroundStyle(statusColor)
                 Text(controller.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -44,14 +39,13 @@ struct ScrollCaptureControlsView: View {
                 HStack(spacing: 10) {
                     Button("Отмена", action: controller.cancel)
                     Button("Убрать кадр", action: controller.undoFrame)
-                        .disabled(controller.frameCount <= 1 || controller.isProcessingFrame)
+                        .disabled(controller.frameCount <= 1)
                     Spacer()
                     Button(controller.isPaused ? "Продолжить" : "Пауза", action: controller.togglePause)
-                        .disabled(controller.isProcessingFrame || !controller.isCapturing)
+                        .disabled(!controller.isCapturing)
                     Button("Готово", action: controller.finish)
                         .buttonStyle(.borderedProminent)
                         .disabled(!controller.canFinish)
-                        .keyboardShortcut(.return, modifiers: [])
                 }
             } else {
                 HStack(spacing: 12) {
@@ -60,7 +54,6 @@ struct ScrollCaptureControlsView: View {
                     Button("Начать", action: controller.start)
                         .buttonStyle(.borderedProminent)
                         .disabled(!controller.canStart)
-                        .keyboardShortcut(.return, modifiers: [])
                 }
             }
         }

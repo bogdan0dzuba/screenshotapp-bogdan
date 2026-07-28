@@ -2,6 +2,8 @@ import AppKit
 
 public final class ScrollCaptureCoverageView: NSView {
     private var presentation = ScrollCaptureOverlayPresentation.selectionReady
+    private var captureBounds: CGRect?
+    private var externalTrailRects: [CGRect] = []
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -16,6 +18,18 @@ public final class ScrollCaptureCoverageView: NSView {
 
     public func present(coverage: ScrollCaptureCoverage) {
         presentation = .pending(coverage)
+        needsDisplay = true
+    }
+
+    public func configure(captureRect: CGRect, screenRect: CGRect, trail: ScrollCaptureTrail) {
+        captureBounds = captureRect.offsetBy(dx: -screenRect.minX, dy: -screenRect.minY)
+        let localScreen = CGRect(origin: .zero, size: screenRect.size)
+        externalTrailRects = [
+            trail.externalRect(captureRect: captureRect, screenRect: screenRect, direction: .down),
+            trail.externalRect(captureRect: captureRect, screenRect: screenRect, direction: .up)
+        ].filter { !$0.isNull && !$0.isEmpty }.map {
+            $0.offsetBy(dx: -screenRect.minX, dy: -screenRect.minY).intersection(localScreen)
+        }
         needsDisplay = true
     }
 
@@ -37,8 +51,11 @@ public final class ScrollCaptureCoverageView: NSView {
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard bounds.width > 0, bounds.height > 0 else { return }
+        NSColor.systemCyan.withAlphaComponent(0.24).setFill()
+        externalTrailRects.forEach { $0.fill() }
+        let drawingBounds = captureBounds ?? bounds
         let layout = ScrollCaptureOverlayLayout.layout(
-            in: bounds,
+            in: drawingBounds,
             presentation: presentation
         )
 
@@ -55,8 +72,8 @@ public final class ScrollCaptureCoverageView: NSView {
             NSColor.systemGreen.withAlphaComponent(0.95).setStroke()
             let boundary = NSBezierPath()
             boundary.lineWidth = 3
-            boundary.move(to: CGPoint(x: bounds.minX, y: boundaryY))
-            boundary.line(to: CGPoint(x: bounds.maxX, y: boundaryY))
+            boundary.move(to: CGPoint(x: drawingBounds.minX, y: boundaryY))
+            boundary.line(to: CGPoint(x: drawingBounds.maxX, y: boundaryY))
             boundary.stroke()
         }
     }

@@ -396,7 +396,7 @@ private func checkScrollFrameSettling() throws {
         minimumOverlapRows: 2,
         maximumMeanDifference: 20
     )
-    var settler = ScrollFrameSettler(minimumStableDuration: 0.5)
+    var settler = ScrollFrameSettler()
 
     let idleOutcome = try settler.observe(
         accepted: first,
@@ -412,7 +412,7 @@ private func checkScrollFrameSettling() throws {
         accepted: first,
         observed: shifted,
         policy: policy,
-        observedAt: 0.1
+        observedAt: 0
     )
     try expect(
         pendingOutcome == .pending(.append(overlap: 3)),
@@ -422,21 +422,21 @@ private func checkScrollFrameSettling() throws {
         accepted: first,
         observed: shifted,
         policy: policy,
-        observedAt: 0.59
+        observedAt: 0.30
     )
     try expect(
         stillPendingOutcome == .pending(.append(overlap: 3)),
-        "a viewport stopped for less than half a second is not captured"
+        "a viewport stopped for less than the settle interval is not captured"
     )
     let committedOutcome = try settler.observe(
         accepted: first,
         observed: shifted,
         policy: policy,
-        observedAt: 0.6
+        observedAt: 0.36
     )
     try expect(
         committedOutcome == .commit(.append(overlap: 3)),
-        "a viewport stopped continuously for half a second commits the pending frame"
+        "a viewport stopped continuously for one polling interval commits the pending frame"
     )
     let rejectedOutcome = try settler.observe(
         accepted: first,
@@ -646,9 +646,9 @@ private func checkScrollCaptureCoveragePolicy() throws {
         presentation: .needsOverlap
     )
     try expect(
-        recoveryLayout.markedRect == bounds
+        recoveryLayout.markedRect == nil
             && recoveryLayout.boundaryY == nil,
-        "an overlap warning never erases the visible mark for the last captured viewport"
+        "an overlap warning does not falsely mark the unconfirmed viewport"
     )
 
     let capturedLayout = ScrollCaptureOverlayLayout.layout(
@@ -720,6 +720,24 @@ private func checkScrollCaptureCoveragePolicy() throws {
     )
 }
 
+private func checkScrollCaptureTrail() throws {
+    var trail = ScrollCaptureTrail()
+    trail.append(frameHeight: 1_000, overlap: 600, captureHeight: 500)
+    try expect(trail.appendHeight == 200, "append trail uses the new-content ratio")
+    trail.prepend(frameHeight: 1_000, overlap: 800, captureHeight: 500)
+    try expect(trail.prependHeight == 100, "prepend trail uses the new-content ratio")
+    let clipped = trail.externalRect(
+        captureRect: CGRect(x: 100, y: 100, width: 300, height: 500),
+        screenRect: CGRect(x: 0, y: 0, width: 800, height: 700),
+        direction: .down
+    )
+    try expect(clipped == CGRect(x: 100, y: 600, width: 300, height: 100), "trail clips to its screen")
+    trail.undoLast()
+    try expect(trail.prependHeight == 0 && trail.appendHeight == 200, "undo removes the last trail increment")
+    trail.reset()
+    try expect(trail.appendHeight == 0 && trail.prependHeight == 0, "reset clears the trail")
+}
+
 private func checkScrollCaptureCoverageRendering() throws {
     let bounds = CGRect(x: 0, y: 0, width: 300, height: 900)
     let view = ScrollCaptureCoverageView(frame: bounds)
@@ -770,9 +788,9 @@ private func checkScrollCaptureCoverageRendering() throws {
     view.presentNeedsOverlap()
     let recovery = try renderedBitmap()
     try expect(
-        (0.25..<0.45).contains(alpha(recovery, x: 150, y: 100))
-            && (0.25..<0.45).contains(alpha(recovery, x: 150, y: 800)),
-        "the real AppKit coverage view keeps the captured mark visible during overlap recovery"
+        alpha(recovery, x: 150, y: 100) < 0.01
+            && alpha(recovery, x: 150, y: 800) < 0.01,
+        "the real AppKit coverage view does not mark an unconfirmed viewport during recovery"
     )
 
     view.present(
@@ -1947,6 +1965,7 @@ do {
     try checkScrollCaptureDirectionPolicy()
     try checkScrollCaptureFeedbackPolicy()
     try checkScrollCaptureCoveragePolicy()
+    try checkScrollCaptureTrail()
     try checkScrollCaptureCoverageRendering()
     try checkCaptureCompletionPolicy()
     try checkAreaCaptureRecoveryPolicy()

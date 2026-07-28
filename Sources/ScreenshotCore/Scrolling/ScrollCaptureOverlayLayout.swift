@@ -30,8 +30,10 @@ public struct ScrollCaptureOverlayLayout: Equatable, Sendable {
         switch presentation {
         case .selectionReady:
             return Self(markedRect: nil, boundaryY: nil)
-        case .captured, .needsOverlap:
+        case .captured:
             return Self(markedRect: bounds, boundaryY: nil)
+        case .needsOverlap:
+            return Self(markedRect: nil, boundaryY: nil)
         case let .pending(coverage):
             let capturedHeight = bounds.height * coverage.alreadyCapturedFraction
             guard capturedHeight > 0 else {

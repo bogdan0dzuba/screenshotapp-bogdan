@@ -30,6 +30,7 @@ final class ScrollCaptureController: ObservableObject {
     private var session = ScrollCaptureSession(frames: [])
     private var selectedFirstFrame: CGImage?
     private var frameSettler = ScrollFrameSettler()
+    private var trail = ScrollCaptureTrail()
     private weak var model: AppModel?
     private var panel: NSPanel?
     private var captureTask: Task<Void, Never>?
@@ -41,6 +42,8 @@ final class ScrollCaptureController: ObservableObject {
     private var targetPixelHeight = 0
     private var lockedDirection: ScrollCaptureDirection?
     private var preparedCapture: PreparedScrollCapture?
+    private var captureInFlight = false
+    private var captureGeneration = 0
 
     func begin(
         rect: CGRect,
@@ -58,6 +61,8 @@ final class ScrollCaptureController: ObservableObject {
         selectedFirstFrame = firstFrame
         session = ScrollCaptureSession(frames: [])
         frameSettler.reset()
+        trail.reset()
+        captureGeneration &+= 1
         frameCount = 0
         isCapturing = true
         isPaused = false
@@ -90,6 +95,7 @@ final class ScrollCaptureController: ObservableObject {
         guard isCapturing, hasStarted else { return }
         isPaused.toggle()
         if isPaused {
+            captureGeneration &+= 1
             frameSettler.reset()
             message = "Пауза. Можно проверить страницу или убрать последний кадр"
             feedbackOverlay.presentPaused(frameCount: frameCount)
@@ -102,9 +108,11 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     func undoFrame() {
-        guard !isProcessingFrame else { return }
+        guard !isFinalizing else { return }
+        captureGeneration &+= 1
         isPaused = true
         session.undoLastFrame()
+        trail.undoLast()
         frameSettler.reset()
         frameCount = session.frames.count
         if frameCount <= 1 {
@@ -143,6 +151,7 @@ final class ScrollCaptureController: ObservableObject {
                 panel = nil
                 feedbackOverlay.hide()
                 releaseCapturedFrames()
+                trail.reset()
                 self.model = nil
                 preparedCapture = nil
                 stitchingTask = nil
@@ -165,6 +174,7 @@ final class ScrollCaptureController: ObservableObject {
         captureTask = nil
         stitchingTask?.cancel()
         stitchingTask = nil
+        captureGeneration &+= 1
         isCapturing = false
         isPaused = false
         isProcessingFrame = false
@@ -173,6 +183,7 @@ final class ScrollCaptureController: ObservableObject {
         lockedDirection = nil
         releaseCapturedFrames()
         frameSettler.reset()
+        trail.reset()
         panel?.orderOut(nil)
         panel = nil
         feedbackOverlay.hide()
@@ -205,7 +216,7 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     private func captureAutomaticFrame() async {
-        guard !isProcessingFrame,
+        guard !captureInFlight,
               !isPaused,
               isCapturing,
               hasStarted,
@@ -219,17 +230,18 @@ final class ScrollCaptureController: ObservableObject {
             return
         }
 
-        isProcessingFrame = true
+        captureInFlight = true
+        let generation = captureGeneration
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreenshotScroll-\(UUID().uuidString).png")
         defer {
-            isProcessingFrame = isFinalizing
+            captureInFlight = false
             try? FileManager.default.removeItem(at: temporaryURL)
         }
 
         do {
             try await model.captureService.capture(preparedCapture, to: temporaryURL)
-            guard !Task.isCancelled, isCapturing,
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration,
                   let image = NSImage(contentsOf: temporaryURL),
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
                   let previous = session.latestFrame else {
@@ -259,7 +271,7 @@ final class ScrollCaptureController: ObservableObject {
                 )
                 return (settler, outcome)
             }.value
-            guard !Task.isCancelled, isCapturing else { return }
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
             frameSettler = settled.0
             let outcome = settled.1
             feedbackState = ScrollCaptureFeedbackPolicy.state(for: outcome)
@@ -288,11 +300,21 @@ final class ScrollCaptureController: ObservableObject {
                     return
                 }
                 switch decision {
-                case .append:
+                case let .append(overlap):
                     session.add(normalizedImage, direction: .down)
+                    trail.append(
+                        frameHeight: normalizedImage.height,
+                        overlap: overlap,
+                        captureHeight: rect.height
+                    )
                     lockedDirection = .down
-                case .prepend:
+                case let .prepend(overlap):
                     session.add(normalizedImage, direction: .up)
+                    trail.prepend(
+                        frameHeight: normalizedImage.height,
+                        overlap: overlap,
+                        captureHeight: rect.height
+                    )
                     lockedDirection = .up
                 case .unchanged, .insufficientOverlap:
                     return
@@ -326,7 +348,7 @@ final class ScrollCaptureController: ObservableObject {
             feedbackOverlay.presentSelectionReady()
             return
         }
-        feedbackOverlay.presentCapturedViewport()
+        feedbackOverlay.presentCapturedViewport(trail: trail)
     }
 
     private func presentOverlapRecoveryTarget() {
@@ -387,7 +409,10 @@ private final class ScrollCaptureFeedbackOverlay {
     private var borderPanels: [NSPanel] = []
     private var outsideShadePanels: [NSPanel] = []
     private var coveragePanel: NSPanel?
+    private var trailOverlay: NSPanel?
     private var coverageView: ScrollCaptureCoverageView?
+    private var captureRect: CGRect = .zero
+    private var screenRect: CGRect = .zero
 
     func show(for captureRect: CGRect) {
         hide()
@@ -433,13 +458,17 @@ private final class ScrollCaptureFeedbackOverlay {
             return panel
         }
 
-        let coveragePanel = overlayPanel(frame: appKitRect)
+        self.captureRect = appKitRect
+        self.screenRect = screenBounds
+        let coveragePanel = overlayPanel(frame: screenBounds)
         let coverageView = ScrollCaptureCoverageView(
-            frame: CGRect(origin: .zero, size: appKitRect.size)
+            frame: CGRect(origin: .zero, size: screenBounds.size)
         )
+        coverageView.configure(captureRect: appKitRect, screenRect: screenBounds, trail: .init())
         coveragePanel.contentView = coverageView
         coveragePanel.orderFrontRegardless()
         self.coveragePanel = coveragePanel
+        self.trailOverlay = coveragePanel
         self.coverageView = coverageView
 
         let strips = [
@@ -467,7 +496,8 @@ private final class ScrollCaptureFeedbackOverlay {
         coverageView?.presentSelectionReady()
     }
 
-    func presentCapturedViewport() {
+    func presentCapturedViewport(trail: ScrollCaptureTrail = .init()) {
+        coverageView?.configure(captureRect: captureRect, screenRect: screenRect, trail: trail)
         coverageView?.presentCapturedViewport()
     }
 
@@ -499,6 +529,7 @@ private final class ScrollCaptureFeedbackOverlay {
         outsideShadePanels.removeAll()
         coveragePanel?.orderOut(nil)
         coveragePanel = nil
+        trailOverlay = nil
         coverageView = nil
     }
 
@@ -532,12 +563,12 @@ private final class ScrollCaptureFeedbackOverlay {
 }
 
 private final class ScrollCaptureFeedbackView: NSView {
-    private let steadyColor = NSColor.systemCyan.withAlphaComponent(0.92)
+    private var currentState = ScrollCaptureFeedbackState.ready
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = steadyColor.cgColor
+        layer?.backgroundColor = NSColor.systemCyan.withAlphaComponent(0.92).cgColor
         layer?.cornerRadius = min(frameRect.width, frameRect.height) / 2
     }
 
@@ -548,22 +579,17 @@ private final class ScrollCaptureFeedbackView: NSView {
 
     func present(state: ScrollCaptureFeedbackState) {
         guard let layer else { return }
-        guard state != .ready else {
-            layer.removeAllAnimations()
-            layer.backgroundColor = steadyColor.cgColor
-            return
+        guard state != currentState else { return }
+        currentState = state
+        let color: NSColor
+        switch state {
+        case .ready: color = .systemCyan
+        case .aligning: color = .systemBlue
+        case .acceptedDown, .acceptedUp: color = .systemGreen
+        case .needsOverlap: color = .systemOrange
         }
-        if state == .aligning {
-            layer.removeAllAnimations()
-            layer.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.95).cgColor
-            return
-        }
-        let accent = state == .needsOverlap ? NSColor.systemOrange : NSColor.systemGreen
-        let animation = CAKeyframeAnimation(keyPath: "backgroundColor")
-        animation.values = [steadyColor.cgColor, accent.cgColor, NSColor.white.cgColor, accent.cgColor, steadyColor.cgColor]
-        animation.keyTimes = [0, 0.2, 0.45, 0.7, 1]
-        animation.duration = state == .needsOverlap ? 0.7 : 0.42
-        layer.add(animation, forKey: "scrollCaptureFrameFlash")
+        layer.removeAllAnimations()
+        layer.backgroundColor = color.withAlphaComponent(0.95).cgColor
     }
 }
 
