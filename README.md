@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v0.5.17-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.17)
+[![Версия](https://img.shields.io/badge/версия-v0.5.25-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v0.5.25)
 [![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
 
 ## Как это выглядит
@@ -116,15 +116,16 @@ GitHub Actions проверяет проект и Universal-сборку при 
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть». При переходе со старой ad-hoc версии macOS может один раз повторно запросить «Запись экрана»; следующие выпуски используют ту же подпись и не должны сбрасывать это разрешение.
 
-### Что проверено перед выпуском 0.5.25
+### Что проверено при выпуске 0.5.25
 
 - локальная сборка и автоматические проверки исходников;
 - Universal-сборка `arm64 + x86_64`, ZIP, DMG, подпись приложения и контрольные суммы;
 - конфигурация Sparkle, EdDSA-проверка архива и защита от повторного номера сборки;
 - регистрация автозапуска через `SMAppService`, сохранение включенного состояния после перезапуска приложения;
 - удаление одобренной скачанной копии после запуска установленного приложения.
+- GitHub Actions для релизного коммита и публичный GitHub Release с подписанным `appcast.xml`.
 
-Отдельная ручная приемка всё еще обязательна перед публичным релизом:
+После публикации остаются два ручных сценария приемки:
 
 1. Перезагрузить Mac и убедиться, что приложение запустилось само.
 2. На копии публичной `0.5.17` нажать «Проверить обновления…», установить `0.5.25` и убедиться, что приложение перезапустилось с версией `0.5.25 (39)`.
