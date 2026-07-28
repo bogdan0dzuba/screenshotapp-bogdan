@@ -25,6 +25,11 @@ enum CaptureError: LocalizedError {
     }
 }
 
+struct PreparedScrollCapture: @unchecked Sendable {
+    let contentFilter: SCContentFilter
+    let configuration: SCStreamConfiguration
+}
+
 struct CaptureService: Sendable {
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
         let integral = rect.integral
@@ -94,6 +99,76 @@ struct CaptureService: Sendable {
         }
         let region = "\(Int(integral.minX)),\(Int(integral.minY)),\(Int(integral.width)),\(Int(integral.height))"
         try await runScreencapture(arguments: ["-x", "-R", region, outputURL.path], outputURL: outputURL)
+    }
+
+    @MainActor
+    func prepareScrollCapture(rect: CGRect) async throws -> PreparedScrollCapture {
+        guard let mainScreenTop = NSScreen.screens.first?.frame.maxY else {
+            throw CaptureError.missingOutput
+        }
+        let appKitRect = ScreenCoordinateTransform.appKitRect(
+            fromCaptureRect: rect,
+            mainScreenTop: mainScreenTop
+        )
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitRect) }),
+              let displayID = screen.deviceDescription[
+                NSDeviceDescriptionKey("NSScreenNumber")
+              ] as? CGDirectDisplayID else {
+            throw CaptureError.missingOutput
+        }
+
+        let shareableContent = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: false
+        )
+        guard let display = shareableContent.displays.first(where: { $0.displayID == displayID }) else {
+            throw CaptureError.missingOutput
+        }
+        let currentPID = NSRunningApplication.current.processIdentifier
+        let excludedApplications = shareableContent.applications.filter {
+            $0.processID == currentPID
+        }
+        guard !excludedApplications.isEmpty else {
+            throw CaptureError.missingOutput
+        }
+
+        let contentFilter = SCContentFilter(
+            display: display,
+            excludingApplications: excludedApplications,
+            exceptingWindows: []
+        )
+        let displayCaptureRect = ScreenCoordinateTransform.captureRect(
+            fromAppKitRect: screen.frame,
+            mainScreenTop: mainScreenTop
+        )
+        guard let geometry = ScrollCaptureSourceGeometry.resolve(
+            captureRect: rect,
+            displayRect: displayCaptureRect,
+            pointPixelScale: CGFloat(contentFilter.pointPixelScale)
+        ) else {
+            throw CaptureError.missingOutput
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = geometry.sourceRect
+        configuration.width = geometry.pixelWidth
+        configuration.height = geometry.pixelHeight
+        configuration.colorSpaceName = CGColorSpace.sRGB
+        configuration.showsCursor = false
+        return PreparedScrollCapture(
+            contentFilter: contentFilter,
+            configuration: configuration
+        )
+    }
+
+    func capture(_ prepared: PreparedScrollCapture, to outputURL: URL) async throws {
+        try? FileManager.default.removeItem(at: outputURL)
+        let image = try await SCScreenshotManager.captureImage(
+            contentFilter: prepared.contentFilter,
+            configuration: prepared.configuration
+        )
+        try Self.writePNG(image, to: outputURL)
+        CaptureTelemetry.logger.info("filtered_scroll_region_capture_finished")
     }
 
     private static func writePNG(_ image: CGImage, to outputURL: URL) throws {

@@ -24,7 +24,7 @@ final class ApplicationInstallationCoordinator {
         alert.addButton(withTitle: "Установить")
         alert.addButton(withTitle: "Не сейчас")
         let cleanupCheckbox = NSButton(
-            checkboxWithTitle: "После установки переместить скачанную копию в Корзину",
+            checkboxWithTitle: "После установки удалить скачанную копию",
             target: nil,
             action: nil
         )
@@ -60,7 +60,11 @@ final class ApplicationInstallationCoordinator {
                     installedBundleURL: destination,
                     userApprovedCleanup: cleanupCheckbox.state == .on
                 ) {
-                    try? FileManager.default.trashItem(at: cleanupURL, resultingItemURL: nil)
+                    do {
+                        try FileManager.default.removeItem(at: cleanupURL)
+                    } catch {
+                        self.showCleanupFailure(error)
+                    }
                 }
                 NSApp.terminate(nil)
             }
@@ -73,6 +77,14 @@ final class ApplicationInstallationCoordinator {
         alert.alertStyle = .warning
         alert.messageText = "Установка не завершена"
         alert.informativeText = message
+        alert.runModal()
+    }
+
+    private func showCleanupFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Приложение установлено"
+        alert.informativeText = "Не удалось удалить скачанную копию: \(error.localizedDescription)"
         alert.runModal()
     }
 }

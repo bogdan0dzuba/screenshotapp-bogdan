@@ -21,7 +21,7 @@ require_source 'security find-key' \
 require_source '--require-release' \
   "helper cannot protect release builds from silently changing signing identity"
 
-SHA1="$($IDENTITY_SCRIPT "$IDENTITY_MODE")"
+SHA1="$("$IDENTITY_SCRIPT" "$IDENTITY_MODE")"
 if [[ ! "$SHA1" =~ ^[[:xdigit:]]{40}$ ]]; then
   echo "LocalSigningIdentityChecks: helper did not return one certificate SHA-1" >&2
   exit 1

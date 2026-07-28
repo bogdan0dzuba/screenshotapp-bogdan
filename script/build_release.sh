@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/script/version.sh"
+
 BUILD_PRODUCT="ScreenshotApp"
 APP_NAME="Богдан Скриншот"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${SCREENSHOT_APP_VERSION:-0.5.17}"
-BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-31}"
+APP_VERSION="${SCREENSHOT_APP_VERSION:-$SCREENSHOT_APP_CURRENT_VERSION}"
+BUILD_NUMBER="${SCREENSHOT_APP_BUILD_NUMBER:-$SCREENSHOT_APP_CURRENT_BUILD_NUMBER}"
 SIGNING_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 SIGNING_IDENTITY_MODE="${SCREENSHOT_APP_SIGNING_IDENTITY_MODE:---require-release}"
 
@@ -19,7 +22,6 @@ case "$SIGNING_IDENTITY_MODE" in
     ;;
 esac
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-release-stage-$(id -u)"
 APP_BUNDLE="$STAGE_DIR/$APP_NAME.app"
@@ -116,6 +118,8 @@ bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 bash "$ROOT_DIR/Tests/ApplicationInstallationChecks.sh"
+bash "$ROOT_DIR/Tests/ReleaseBuildNumberChecks.sh"
+bash "$ROOT_DIR/Tests/UpdaterIntegrationChecks.sh"
 if [[ "$SIGNING_IDENTITY_MODE" == "--require-release" ]]; then
   bash "$ROOT_DIR/Tests/LocalSigningIdentityChecks.sh" \
     "$ROOT_DIR/script/ensure_local_signing_identity.sh" \

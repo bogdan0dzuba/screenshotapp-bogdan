@@ -299,6 +299,39 @@ private func checkOverlapMatching() throws {
     let match = try OverlapMatcher.bestVerticalMatch(previous: first, next: second)
     try expect(match.overlap == 3, "scroll match reports overlap")
     try expect(match.meanDifference == 0, "scroll match reports confidence")
+
+    let blank = GrayImage(
+        width: 8,
+        height: 12,
+        pixels: Array(repeating: 240, count: 96)
+    )
+    var sparsePixels = Array(repeating: UInt8(240), count: 96)
+    sparsePixels[8 * 8 + 4] = 20
+    let sparseFirst = GrayImage(width: 8, height: 12, pixels: sparsePixels)
+    var shiftedSparsePixels = Array(repeating: UInt8(240), count: 96)
+    shiftedSparsePixels[2 * 8 + 4] = 20
+    let sparseSecond = GrayImage(width: 8, height: 12, pixels: shiftedSparsePixels)
+
+    let blankMatch = try OverlapMatcher.bestVerticalMatch(previous: blank, next: blank)
+    try expect(
+        blankMatch.overlap == 0 && !blankMatch.meanDifference.isFinite,
+        "a blank page has no trustworthy geometric overlap"
+    )
+    let sparseOverlap = try OverlapMatcher.bestVerticalOverlap(previous: sparseFirst, next: sparseSecond)
+    try expect(
+        sparseOverlap == 0,
+        "a single mark on a mostly blank page cannot force a destructive scroll seam"
+    )
+
+    let blankDecision = try ScrollFrameClassifier.decision(
+        previous: blank,
+        next: blank,
+        policy: ScrollFramePolicy(frameHeight: blank.height)
+    )
+    try expect(
+        blankDecision == .unchanged,
+        "identical blank viewports remain idle instead of producing an overlap warning"
+    )
 }
 
 private func checkAutomaticScrollFrameSelection() throws {
@@ -339,6 +372,439 @@ private func checkAutomaticScrollFrameSelection() throws {
     try expect(
         unrelatedDecision == .insufficientOverlap,
         "automatic scroll capture rejects a frame that cannot be stitched"
+    )
+}
+
+private func checkScrollFrameSettling() throws {
+    let first = GrayImage(
+        width: 3,
+        height: 6,
+        pixels: [0, 0, 0, 10, 10, 10, 20, 20, 20, 30, 30, 30, 40, 40, 40, 50, 50, 50]
+    )
+    let shifted = GrayImage(
+        width: 3,
+        height: 6,
+        pixels: [30, 30, 30, 40, 40, 40, 50, 50, 50, 60, 60, 60, 70, 70, 70, 80, 80, 80]
+    )
+    let unrelated = GrayImage(
+        width: 3,
+        height: 6,
+        pixels: [200, 10, 180, 5, 210, 20, 190, 15, 220, 0, 205, 25, 185, 30, 215, 35, 195, 40]
+    )
+    let policy = ScrollFramePolicy(
+        minimumNewRows: 2,
+        minimumOverlapRows: 2,
+        maximumMeanDifference: 20
+    )
+    var settler = ScrollFrameSettler(minimumStableDuration: 0.5)
+
+    let idleOutcome = try settler.observe(
+        accepted: first,
+        observed: first,
+        policy: policy,
+        observedAt: 0
+    )
+    try expect(
+        idleOutcome == .unchanged,
+        "an idle viewport does not create a fake pending scroll frame"
+    )
+    let pendingOutcome = try settler.observe(
+        accepted: first,
+        observed: shifted,
+        policy: policy,
+        observedAt: 0.1
+    )
+    try expect(
+        pendingOutcome == .pending(.append(overlap: 3)),
+        "the first changed viewport is shown as pending instead of being captured mid-scroll"
+    )
+    let stillPendingOutcome = try settler.observe(
+        accepted: first,
+        observed: shifted,
+        policy: policy,
+        observedAt: 0.59
+    )
+    try expect(
+        stillPendingOutcome == .pending(.append(overlap: 3)),
+        "a viewport stopped for less than half a second is not captured"
+    )
+    let committedOutcome = try settler.observe(
+        accepted: first,
+        observed: shifted,
+        policy: policy,
+        observedAt: 0.6
+    )
+    try expect(
+        committedOutcome == .commit(.append(overlap: 3)),
+        "a viewport stopped continuously for half a second commits the pending frame"
+    )
+    let rejectedOutcome = try settler.observe(
+        accepted: first,
+        observed: unrelated,
+        policy: policy,
+        observedAt: 1.2
+    )
+    try expect(
+        rejectedOutcome == .insufficientOverlap,
+        "a viewport without overlap is rejected instead of being committed"
+    )
+}
+
+private func checkScrollCapturePanelPlacement() throws {
+    let visibleFrame = CGRect(x: 0, y: 0, width: 1_200, height: 900)
+    let panelSize = CGSize(width: 400, height: 100)
+    let roomAbove = ScrollCapturePanelPlacement.frame(
+        near: CGRect(x: 100, y: 400, width: 500, height: 300),
+        panelSize: panelSize,
+        visibleFrame: visibleFrame
+    )
+    try expect(
+        roomAbove == CGRect(x: 150, y: 712, width: 400, height: 100),
+        "the capture HUD stays directly above the selected area where the user is looking"
+    )
+
+    let onlyRoomBelow = ScrollCapturePanelPlacement.frame(
+        near: CGRect(x: 100, y: 10, width: 500, height: 300),
+        panelSize: panelSize,
+        visibleFrame: visibleFrame
+    )
+    try expect(
+        onlyRoomBelow == CGRect(x: 150, y: 322, width: 400, height: 100),
+        "the capture HUD moves above a low selection instead of leaving the visible screen"
+    )
+
+    let fullHeightSelection = ScrollCapturePanelPlacement.frame(
+        near: CGRect(x: 100, y: 40, width: 500, height: 820),
+        panelSize: panelSize,
+        visibleFrame: visibleFrame
+    )
+    try expect(
+        fullHeightSelection == CGRect(x: 150, y: 748, width: 400, height: 100),
+        "a full-height selection keeps the complete command HUD inside its top edge"
+    )
+}
+
+private func checkScreenCoordinateTransform() throws {
+    let mainScreenTop: CGFloat = 900
+    let captureOnMain = CGRect(x: 100, y: 100, width: 500, height: 300)
+    try expect(
+        ScreenCoordinateTransform.appKitRect(
+            fromCaptureRect: captureOnMain,
+            mainScreenTop: mainScreenTop
+        ) == CGRect(x: 100, y: 500, width: 500, height: 300),
+        "capture coordinates map to the main AppKit screen"
+    )
+
+    let captureOnScreenAbove = CGRect(x: -300, y: -1_100, width: 600, height: 300)
+    let appKitOnScreenAbove = ScreenCoordinateTransform.appKitRect(
+        fromCaptureRect: captureOnScreenAbove,
+        mainScreenTop: mainScreenTop
+    )
+    try expect(
+        appKitOnScreenAbove == CGRect(x: -300, y: 1_700, width: 600, height: 300),
+        "an external screen above the main display is not shifted by the desktop union height"
+    )
+    try expect(
+        ScreenCoordinateTransform.captureRect(
+            fromAppKitRect: appKitOnScreenAbove,
+            mainScreenTop: mainScreenTop
+        ) == captureOnScreenAbove,
+        "AppKit and capture coordinates round-trip across multiple displays"
+    )
+}
+
+private func checkScrollCaptureSourceGeometry() throws {
+    let mainDisplay = ScrollCaptureSourceGeometry.resolve(
+        captureRect: CGRect(x: 100, y: 120, width: 500, height: 300),
+        displayRect: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+        pointPixelScale: 2
+    )
+    try expect(
+        mainDisplay == ScrollCaptureSourceGeometry(
+            sourceRect: CGRect(x: 100, y: 120, width: 500, height: 300),
+            pixelWidth: 1_000,
+            pixelHeight: 600
+        ),
+        "the filtered screenshot uses display-local coordinates and native pixel density"
+    )
+
+    let displayAboveMain = ScrollCaptureSourceGeometry.resolve(
+        captureRect: CGRect(x: -250, y: -1_100, width: 500, height: 300),
+        displayRect: CGRect(x: -300, y: -1_200, width: 600, height: 1_200),
+        pointPixelScale: 1
+    )
+    try expect(
+        displayAboveMain == ScrollCaptureSourceGeometry(
+            sourceRect: CGRect(x: 50, y: 100, width: 500, height: 300),
+            pixelWidth: 500,
+            pixelHeight: 300
+        ),
+        "an elongated external display above the main screen keeps a local filtered capture rect"
+    )
+
+    try expect(
+        ScrollCaptureSourceGeometry.resolve(
+            captureRect: CGRect(x: 1_800, y: 100, width: 300, height: 300),
+            displayRect: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            pointPixelScale: 2
+        ) == nil,
+        "a filtered capture never silently clips a selection that crosses display bounds"
+    )
+}
+
+private func checkScrollCaptureStartPolicy() throws {
+    try expect(
+        ScrollCaptureStartPolicy.canStart(hasStarted: false, isProcessingFrame: false),
+        "a selected scroll area can be explicitly started"
+    )
+    try expect(
+        !ScrollCaptureStartPolicy.canStart(hasStarted: true, isProcessingFrame: false),
+        "an active session cannot be started twice"
+    )
+    try expect(
+        !ScrollCaptureStartPolicy.canStart(hasStarted: false, isProcessingFrame: true),
+        "the start button waits for an in-flight first frame"
+    )
+}
+
+private func checkScrollCaptureDirectionPolicy() throws {
+    try expect(
+        ScrollCaptureDirectionPolicy.accepts(.append(overlap: 300), lockedTo: nil),
+        "the first accepted scroll frame establishes either direction"
+    )
+    try expect(
+        ScrollCaptureDirectionPolicy.accepts(.append(overlap: 300), lockedTo: .down),
+        "a downward capture continues accepting downward frames"
+    )
+    try expect(
+        !ScrollCaptureDirectionPolicy.accepts(.prepend(overlap: 300), lockedTo: .down),
+        "a backward correction cannot be inserted as a duplicate frame above a downward capture"
+    )
+    try expect(
+        !ScrollCaptureDirectionPolicy.accepts(.append(overlap: 300), lockedTo: .up),
+        "a backward correction cannot be appended below an upward capture"
+    )
+}
+
+private func checkScrollCaptureFeedbackPolicy() throws {
+    try expect(
+        ScrollCaptureFeedbackPolicy.state(for: .pending(.append(overlap: 120))) == .aligning,
+        "a moving viewport shows alignment progress before claiming the frame was saved"
+    )
+    try expect(
+        ScrollCaptureFeedbackPolicy.state(for: ScrollFrameDecision.unchanged) == .ready,
+        "an unchanged polling frame keeps the guide ready without pretending a frame was saved"
+    )
+    try expect(
+        ScrollCaptureFeedbackPolicy.state(for: .append(overlap: 120)) == .acceptedDown,
+        "a downward extension visibly confirms an accepted frame"
+    )
+    try expect(
+        ScrollCaptureFeedbackPolicy.state(for: .prepend(overlap: 120)) == .acceptedUp,
+        "an upward extension visibly confirms an accepted frame"
+    )
+    try expect(
+        ScrollCaptureFeedbackPolicy.state(for: ScrollFrameDecision.insufficientOverlap) == .needsOverlap,
+        "a jump without overlap shows a warning instead of a success flash"
+    )
+}
+
+private func checkScrollCaptureCoveragePolicy() throws {
+    let downward = ScrollCaptureCoveragePolicy.coverage(
+        for: .append(overlap: 600),
+        frameHeight: 900
+    )
+    try expect(
+        downward == ScrollCaptureCoverage(
+            alreadyCapturedEdge: .top,
+            alreadyCapturedFraction: 2.0 / 3.0
+        ),
+        "downward scrolling shades the real overlap at the top of the selected area"
+    )
+
+    let upward = ScrollCaptureCoveragePolicy.coverage(
+        for: .prepend(overlap: 450),
+        frameHeight: 900
+    )
+    try expect(
+        upward == ScrollCaptureCoverage(
+            alreadyCapturedEdge: .bottom,
+            alreadyCapturedFraction: 0.5
+        ),
+        "upward scrolling shades the real overlap at the bottom of the selected area"
+    )
+
+    let bounds = CGRect(x: 0, y: 0, width: 300, height: 900)
+
+    try expect(
+        ScrollCaptureOverlayLayout.layout(in: bounds, presentation: .selectionReady).markedRect == nil,
+        "before a frame is accepted, the selected area remains unmarked and live"
+    )
+
+    let recoveryLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .needsOverlap
+    )
+    try expect(
+        recoveryLayout.markedRect == bounds
+            && recoveryLayout.boundaryY == nil,
+        "an overlap warning never erases the visible mark for the last captured viewport"
+    )
+
+    let capturedLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .captured
+    )
+    try expect(
+        capturedLayout.markedRect == bounds
+            && capturedLayout.boundaryY == nil,
+        "after a frame is accepted, its entire live viewport remains visibly marked as scanned"
+    )
+
+    let pendingLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .pending(
+            ScrollCaptureCoverage(
+                alreadyCapturedEdge: .top,
+                alreadyCapturedFraction: 2.0 / 3.0
+            )
+        )
+    )
+    try expect(
+        pendingLayout.markedRect == CGRect(x: 0, y: 300, width: 300, height: 600)
+            && pendingLayout.boundaryY == 300,
+        "during downward scrolling, the scanned top content stays marked while new bottom content stays clear"
+    )
+
+    let upwardPendingLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .pending(
+            ScrollCaptureCoverage(
+                alreadyCapturedEdge: .bottom,
+                alreadyCapturedFraction: 0.5
+            )
+        )
+    )
+    try expect(
+        upwardPendingLayout.markedRect == CGRect(x: 0, y: 0, width: 300, height: 450)
+            && upwardPendingLayout.boundaryY == 450,
+        "during upward scrolling, the scanned bottom content stays marked while new top content stays clear"
+    )
+
+    let zeroCoverageLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .pending(
+            ScrollCaptureCoverage(
+                alreadyCapturedEdge: .top,
+                alreadyCapturedFraction: 0
+            )
+        )
+    )
+    try expect(
+        zeroCoverageLayout.markedRect == nil,
+        "an overlap failure never falsely marks unseen live content as scanned"
+    )
+
+    let fullCoverageLayout = ScrollCaptureOverlayLayout.layout(
+        in: bounds,
+        presentation: .pending(
+            ScrollCaptureCoverage(
+                alreadyCapturedEdge: .bottom,
+                alreadyCapturedFraction: 1
+            )
+        )
+    )
+    try expect(
+        fullCoverageLayout.markedRect == bounds,
+        "a fully overlapping live viewport remains fully marked"
+    )
+}
+
+private func checkScrollCaptureCoverageRendering() throws {
+    let bounds = CGRect(x: 0, y: 0, width: 300, height: 900)
+    let view = ScrollCaptureCoverageView(frame: bounds)
+    view.appearance = NSAppearance(named: .aqua)
+
+    func renderedBitmap() throws -> NSBitmapImageRep {
+        let bitmap = try requireValue(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(bounds.width),
+                pixelsHigh: Int(bounds.height),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ),
+            "scroll coverage view creates an RGBA render surface"
+        )
+        bitmap.size = bounds.size
+        let context = try requireValue(
+            NSGraphicsContext(bitmapImageRep: bitmap),
+            "scroll coverage view creates an AppKit graphics context"
+        )
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        view.displayIgnoringOpacity(view.bounds, in: context)
+        context.flushGraphics()
+        return bitmap
+    }
+
+    func alpha(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> CGFloat {
+        let bitmapY = Int(bounds.height) - 1 - y
+        return bitmap.colorAt(x: x, y: bitmapY)?.alphaComponent ?? 0
+    }
+
+    view.presentCapturedViewport()
+    let captured = try renderedBitmap()
+    try expect(
+        (0.25..<0.45).contains(alpha(captured, x: 150, y: 100))
+            && (0.25..<0.45).contains(alpha(captured, x: 150, y: 800)),
+        "the real AppKit coverage view visibly marks the entire accepted viewport"
+    )
+
+    view.presentNeedsOverlap()
+    let recovery = try renderedBitmap()
+    try expect(
+        (0.25..<0.45).contains(alpha(recovery, x: 150, y: 100))
+            && (0.25..<0.45).contains(alpha(recovery, x: 150, y: 800)),
+        "the real AppKit coverage view keeps the captured mark visible during overlap recovery"
+    )
+
+    view.present(
+        coverage: ScrollCaptureCoverage(
+            alreadyCapturedEdge: .top,
+            alreadyCapturedFraction: 2.0 / 3.0
+        )
+    )
+    let pendingDown = try renderedBitmap()
+    let pendingDownLowAlpha = alpha(pendingDown, x: 150, y: 150)
+    let pendingDownHighAlpha = alpha(pendingDown, x: 150, y: 750)
+    try expect(
+        pendingDownHighAlpha > 0.25
+            && pendingDownLowAlpha < 0.01,
+        "during downward scrolling, the real AppKit view marks old content and leaves new content clear "
+            + "(low alpha: \(pendingDownLowAlpha), high alpha: \(pendingDownHighAlpha))"
+    )
+
+    view.present(
+        coverage: ScrollCaptureCoverage(
+            alreadyCapturedEdge: .bottom,
+            alreadyCapturedFraction: 0.5
+        )
+    )
+    let pendingUp = try renderedBitmap()
+    let pendingUpLowAlpha = alpha(pendingUp, x: 150, y: 150)
+    let pendingUpHighAlpha = alpha(pendingUp, x: 150, y: 750)
+    try expect(
+        pendingUpLowAlpha > 0.25
+            && pendingUpHighAlpha < 0.01,
+        "during upward scrolling, the real AppKit view marks old content and leaves new content clear "
+            + "(low alpha: \(pendingUpLowAlpha), high alpha: \(pendingUpHighAlpha))"
     )
 }
 
@@ -695,6 +1161,54 @@ private func checkScrollStitching() throws {
     let output = try ScrollStitcher.stitch([first, second])
     try expect(output.width == 2, "stitched width")
     try expect(output.height == 6, "stitched height without duplicate rows")
+    let outputPixels = try ScrollStitcher.grayImage(from: output).pixels
+    try expect(
+        outputPixels == [
+            0, 0, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50,
+        ],
+        "stitching preserves the first frame and appends only newly revealed rows"
+    )
+
+    let stickyFirst = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [240, 240, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50]
+    )
+    let stickySecond = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [240, 240, 30, 30, 40, 40, 50, 50, 60, 60, 70, 70]
+    )
+    let stickyFirstGray = try ScrollStitcher.grayImage(from: stickyFirst)
+    let stickySecondGray = try ScrollStitcher.grayImage(from: stickySecond)
+    let stickyMatch = try OverlapMatcher.bestVerticalMatch(previous: stickyFirstGray, next: stickySecondGray)
+    try expect(stickyMatch.overlap == 4, "a fixed top bar is excluded from scroll overlap matching")
+    let stickyOutput = try ScrollStitcher.stitch([stickyFirst, stickySecond])
+    try expect(stickyOutput.height == 8, "a fixed top bar is kept once instead of creating a crooked seam")
+    let stickyOutputPixels = try ScrollStitcher.grayImage(from: stickyOutput).pixels
+    try expect(
+        stickyOutputPixels == [
+            240, 240, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50, 60, 60, 70, 70,
+        ],
+        "a fixed top bar is not repeated inside the stitched page"
+    )
+}
+
+private func checkScrollFrameNormalization() throws {
+    let lowResolution = try makeGrayImage(
+        width: 2,
+        height: 2,
+        pixels: [0, 0, 100, 100]
+    )
+    let normalized = try ScrollFrameNormalizer.normalized(
+        lowResolution,
+        width: 4,
+        height: 4
+    )
+    try expect(
+        normalized.width == 4 && normalized.height == 4,
+        "scroll frames captured at a different Retina scale are normalized before stitching"
+    )
 }
 
 private func makeColorImage(width: Int, height: Int) throws -> CGImage {
@@ -759,6 +1273,21 @@ private func checkScrollSession() throws {
     try expect(session.latestFrame === below, "undo restores the previous observed frame")
     let output = try session.finish()
     try expect(output.height == 6, "scroll session finishes stitched image")
+}
+
+private func checkScrollCaptureFinishPolicy() throws {
+    try expect(
+        ScrollCaptureFinishPolicy.canFinish(isCapturing: true, isFinalizing: false),
+        "scroll capture can finish while an automatic frame is being captured"
+    )
+    try expect(
+        !ScrollCaptureFinishPolicy.canFinish(isCapturing: false, isFinalizing: false),
+        "scroll capture cannot finish after it has stopped"
+    )
+    try expect(
+        !ScrollCaptureFinishPolicy.canFinish(isCapturing: true, isFinalizing: true),
+        "scroll capture cannot start a second stitch"
+    )
 }
 
 private func checkOCRTextOrdering() throws {
@@ -1330,6 +1859,75 @@ private func checkAutomaticUpdateDefaultsMigration() throws {
     )
 }
 
+private func checkLaunchAtLoginPolicy() throws {
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: true, status: .notRegistered) == .register,
+        "enabling an unregistered login item registers the main app"
+    )
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: true, status: .enabled) == .none,
+        "an enabled login item is not registered twice"
+    )
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: true, status: .requiresApproval) == .none,
+        "a denied login item waits for explicit approval instead of retrying registration"
+    )
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: true, status: .notFound) == .register,
+        "a missing main-app registration is repaired instead of becoming a permanent no-op"
+    )
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: false, status: .enabled) == .unregister,
+        "disabling an enabled login item unregisters the main app"
+    )
+    try expect(
+        LaunchAtLoginPolicy.action(desiredEnabled: false, status: .notRegistered) == .none,
+        "an unregistered login item is not unregistered twice"
+    )
+    try expect(
+        LaunchAtLoginPolicy.isEnabled(status: .enabled),
+        "the settings toggle is on only for an actually enabled login item"
+    )
+    try expect(
+        !LaunchAtLoginPolicy.isEnabled(status: .requiresApproval),
+        "a login item awaiting approval is not shown as enabled"
+    )
+    try expect(
+        LaunchAtLoginPolicy.statusMessage(status: .requiresApproval)
+            == "Разрешите автозапуск в системных настройках macOS.",
+        "approval-required state has an actionable Russian explanation"
+    )
+    try expect(
+        LaunchAtLoginPolicy.statusMessage(status: .notFound)
+            == "macOS не нашла приложение среди объектов входа.",
+        "missing login item has an actionable Russian explanation"
+    )
+    try expect(
+        LaunchAtLoginPolicy.diagnosticValue(status: .enabled) == "enabled",
+        "launch-at-login diagnostics expose the actual normalized status"
+    )
+
+    let suiteName = "LaunchAtLoginDefaultsMigrationTests-\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        throw CheckFailure.failed("cannot create isolated launch-at-login defaults")
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    try expect(
+        LaunchAtLoginDefaultsMigration.shouldEnableLaunchAtLogin(in: defaults),
+        "launch at login is enabled for an existing installation"
+    )
+    try expect(
+        LaunchAtLoginDefaultsMigration.shouldEnableLaunchAtLogin(in: defaults),
+        "a failed first registration remains retryable"
+    )
+    LaunchAtLoginDefaultsMigration.markLaunchAtLoginHandled(in: defaults)
+    try expect(
+        !LaunchAtLoginDefaultsMigration.shouldEnableLaunchAtLogin(in: defaults),
+        "a user's later login-item preference is preserved after migration"
+    )
+}
+
 do {
     try checkFrozenScreenCrop()
     try checkModels()
@@ -1341,6 +1939,15 @@ do {
     try checkAnnotationDraftBuilder()
     try checkOverlapMatching()
     try checkAutomaticScrollFrameSelection()
+    try checkScrollFrameSettling()
+    try checkScrollCapturePanelPlacement()
+    try checkScreenCoordinateTransform()
+    try checkScrollCaptureSourceGeometry()
+    try checkScrollCaptureStartPolicy()
+    try checkScrollCaptureDirectionPolicy()
+    try checkScrollCaptureFeedbackPolicy()
+    try checkScrollCaptureCoveragePolicy()
+    try checkScrollCaptureCoverageRendering()
     try checkCaptureCompletionPolicy()
     try checkAreaCaptureRecoveryPolicy()
     try checkCaptureProcessOutcome()
@@ -1356,6 +1963,8 @@ do {
     try checkAnnotationRendering()
     try checkShelfState()
     try checkScrollSession()
+    try checkScrollCaptureFinishPolicy()
+    try checkScrollFrameNormalization()
     try checkOCRTextOrdering()
     try checkShelfPlacementOnSecondaryDisplay()
     try checkCompactShelfMetrics()
@@ -1370,6 +1979,7 @@ do {
     try checkHistoryRetentionPolicy()
     try checkManagedCaptureFiles()
     try checkAutomaticUpdateDefaultsMigration()
+    try checkLaunchAtLoginPolicy()
     print("CoreChecks: OK")
 } catch {
     fputs("CoreChecks: \(error)\n", stderr)

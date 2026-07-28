@@ -8,6 +8,7 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/script/version.sh"
 REPOSITORY="bogdan0dzuba/screenshotapp-bogdan"
 TAG="v$VERSION"
 RELEASE_SPARKLE_BIN_DIR="/private/tmp/ScreenshotApp-Bogdan-release-arm64-$(id -u)/artifacts/sparkle/Sparkle/bin"
@@ -32,7 +33,16 @@ git fetch origin main
   exit 1
 }
 
+PUBLIC_APPCAST_URL="https://github.com/$REPOSITORY/releases/latest/download/appcast.xml"
+RELEASE_BUILD_CANDIDATE="${SCREENSHOT_APP_BUILD_NUMBER:-$SCREENSHOT_APP_CURRENT_BUILD_NUMBER}"
+RELEASE_BUILD_NUMBER="$(
+  "$ROOT_DIR/script/next_release_build_number.sh" \
+    "$RELEASE_BUILD_CANDIDATE" \
+    "$PUBLIC_APPCAST_URL"
+)"
+
 SCREENSHOT_APP_VERSION="$VERSION" \
+  SCREENSHOT_APP_BUILD_NUMBER="$RELEASE_BUILD_NUMBER" \
   SCREENSHOT_APP_SIGNING_IDENTITY_MODE=--require-release \
   "$ROOT_DIR/script/build_release.sh"
 

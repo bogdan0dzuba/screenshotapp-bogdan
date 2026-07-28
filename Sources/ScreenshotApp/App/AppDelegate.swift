@@ -4,13 +4,19 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let updateService = UpdateService()
+    let launchAtLoginService = LaunchAtLoginService()
     private var settingsController: SettingsWindowController?
     private let installationCoordinator = ApplicationInstallationCoordinator()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         if installationCoordinator.offerInstallationIfNeeded() { return }
-        settingsController = SettingsWindowController(model: model, updateService: updateService)
+        launchAtLoginService.enableByDefaultOnce()
+        settingsController = SettingsWindowController(
+            model: model,
+            updateService: updateService,
+            launchAtLoginService: launchAtLoginService
+        )
         let shelf = ShelfPanelController(model: model, onOpenSettings: { [weak self] in
             self?.showSettings()
         })

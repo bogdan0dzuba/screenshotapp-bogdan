@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTROLLER="${1:-Sources/ScreenshotApp/Windowing/ScrollCaptureController.swift}"
+CONTROLS="${2:-Sources/ScreenshotApp/Views/ScrollCaptureControlsView.swift}"
+REGION_SELECTION="${3:-Sources/ScreenshotApp/Windowing/RegionSelectionController.swift}"
+CAPTURE_SERVICE="${4:-Sources/ScreenshotApp/Services/CaptureService.swift}"
+COVERAGE_VIEW="${5:-Sources/ScreenshotCore/Scrolling/ScrollCaptureCoverageView.swift}"
+
+require_text() {
+  local file="$1"
+  local pattern="$2"
+  local failure="$3"
+  if ! /usr/bin/grep -Fq "$pattern" "$file"; then
+    echo "ScrollCaptureInteractionChecks: $failure" >&2
+    exit 1
+  fi
+}
+
+reject_text() {
+  local file="$1"
+  local pattern="$2"
+  local failure="$3"
+  if /usr/bin/grep -Fq "$pattern" "$file"; then
+    echo "ScrollCaptureInteractionChecks: $failure" >&2
+    exit 1
+  fi
+}
+
+require_text "$CONTROLLER" "ScrollCaptureFinishPolicy.canFinish" "finish is still coupled to an in-flight frame"
+require_text "$CONTROLLER" "ScrollCaptureStartPolicy.canStart" "scroll capture still begins before the selected area is confirmed"
+require_text "$CONTROLLER" "func start()" "the selected area has no explicit Start phase"
+require_text "$CONTROLLER" "ScrollCaptureFeedbackOverlay" "selected scroll area has no persistent visual guide"
+require_text "$CONTROLLER" "ScrollCaptureFeedbackPolicy.state(for: outcome)" "visual feedback is not tied to the settled frame decision"
+require_text "$CONTROLLER" "feedbackOverlay.present(state: feedbackState" "accepted and rejected frames have no distinct guide state"
+reject_text "$CONTROLLER" "ScrollCaptureGuideView" "the redundant lower guide can still cover the selected scroll area"
+reject_text "$CONTROLLER" "guidePanel" "a fallback guide panel can still be placed inside the selected scroll area"
+require_text "$CONTROLLER" "panel.hidesOnDeactivate = false" "scroll guides disappear when the user returns to the captured app"
+require_text "$CONTROLLER" "ScrollCapturePanelPlacement.frame" "the control HUD is not anchored to the selected area"
+require_text "$CONTROLLER" "panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)" "the dimming overlay can cover the Start and Done controls"
+require_text "$CONTROLLER" "outsideShadePanels" "screen outside the selected scroll area is not dimmed"
+require_text "$CONTROLLER" "ScrollCaptureCoverageView" "captured and pending portions have no persistent visual mask"
+require_text "$CONTROLLER" "ScrollCaptureCoveragePolicy.coverage" "progress mask is not tied to the accepted overlap"
+require_text "$CONTROLLER" "presentCapturedViewport()" "an accepted live viewport is not marked as fully scanned"
+require_text "$COVERAGE_VIEW" "markedRect.fill()" "the scanned part of the live viewport has no persistent color mark"
+require_text "$COVERAGE_VIEW" "presentNeedsOverlap()" "an overlap warning can erase the last captured viewport"
+reject_text "$CONTROLLER" "presentLive()" "a recovery branch can still erase the captured-area mark"
+reject_text "$CONTROLLER" "frozenFrame.draw(" "a frozen screenshot can still create double text over the live viewport"
+reject_text "$CONTROLLER" 'drawLabel("СНЯТО' "the accepted-frame label still obscures live content"
+reject_text "$CONTROLLER" 'drawLabel("ЕЩЁ НЕ СНЯТО' "the pending-frame label still obscures live content"
+require_text "$CONTROLLER" "preparedCapture" "automatic frames are not tied to an overlay-safe capture source"
+reject_text "$CONTROLLER" "NSApp.activate(ignoringOtherApps: true)" "the scrolling HUD steals focus from the app being scrolled"
+require_text "$CONTROLLER" "settler.observe" "frames are still accepted while the viewport is moving"
+require_text "$CONTROLLER" "ScrollFrameNormalizer.normalized" "Retina-sized frames can still fail final stitching"
+require_text "$CONTROLLER" "Прокрутите на 1/3 и остановитесь" "scroll pacing is not explained to the user"
+release_call_count="$(/usr/bin/grep -Fc "releaseCapturedFrames()" "$CONTROLLER" || true)"
+if (( release_call_count < 3 )); then
+  echo "ScrollCaptureInteractionChecks: full-size scroll frames remain retained after success or cancellation" >&2
+  exit 1
+fi
+require_text "$CONTROLS" "controller.canFinish" "Done remains disabled while a frame is captured"
+require_text "$CONTROLS" 'Button("Начать", action: controller.start)' "the control HUD has no explicit Start button"
+require_text "$CONTROLS" 'Text("Esc - отмена")' "the control HUD does not explain how to cancel from the keyboard"
+require_text "$CONTROLS" '.environment(\.appearsActive, true)' "the first HUD presentation still inherits an unreadable inactive control state"
+require_text "$CONTROLS" 'Color(nsColor: .windowBackgroundColor)' "the command HUD still depends on a translucent backdrop for legibility"
+require_text "$CAPTURE_SERVICE" "struct PreparedScrollCapture" "scroll capture has no reusable filtered source"
+require_text "$CAPTURE_SERVICE" "excludingApplications: excludedApplications" "ScreenshotApp overlays are not excluded from automatic frames"
+require_text "$CAPTURE_SERVICE" "SCScreenshotManager.captureImage(" "automatic frames do not use ScreenCaptureKit"
+require_text "$CAPTURE_SERVICE" "contentFilter: prepared.contentFilter" "automatic frames still use an unfiltered screen rectangle"
+require_text "$REGION_SELECTION" 'panel.title = "Выбор области снимка"' "selection window has no accessible identity for physical UI testing"
+
+echo "ScrollCaptureInteractionChecks: OK"

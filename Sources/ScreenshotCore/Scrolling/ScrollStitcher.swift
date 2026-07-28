@@ -52,8 +52,14 @@ public enum ScrollStitcher {
         var y = totalHeight - first.height
         context.draw(first, in: CGRect(x: 0, y: y, width: first.width, height: first.height))
         for (index, frame) in frames.dropFirst().enumerated() {
-            y -= frame.height - overlaps[index]
-            context.draw(frame, in: CGRect(x: 0, y: y, width: frame.width, height: frame.height))
+            let newRowCount = frame.height - overlaps[index]
+            guard let newRows = frame.cropping(
+                to: CGRect(x: 0, y: overlaps[index], width: frame.width, height: newRowCount)
+            ) else {
+                throw ScrollStitcherError.contextCreationFailed
+            }
+            y -= newRowCount
+            context.draw(newRows, in: CGRect(x: 0, y: y, width: frame.width, height: newRowCount))
         }
 
         guard let image = context.makeImage() else {

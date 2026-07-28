@@ -5,6 +5,7 @@ SETTINGS_VIEW="${1:-Sources/ScreenshotApp/Views/SettingsView.swift}"
 APP_MODEL="${2:-Sources/ScreenshotApp/Models/AppModel.swift}"
 PREFERENCES="${3:-Sources/ScreenshotApp/Support/AppPreferences.swift}"
 HOT_KEY_SERVICE="${4:-Sources/ScreenshotApp/Services/GlobalHotKeyService.swift}"
+LAUNCH_AT_LOGIN_SERVICE="${5:-Sources/ScreenshotApp/Services/LaunchAtLoginService.swift}"
 
 require_text() {
   local file="$1"
@@ -84,5 +85,23 @@ require_text "$PREFERENCES" 'Self.keyCodes[storedHotKeyLetter] != nil' \
   "an invalid saved letter can register the A key while displaying another symbol"
 require_text "$APP_MODEL" 'HotKeyStartupPolicy.candidates(preferred:' \
   "a conflicting saved shortcut does not fall back to the standard hotkey at startup"
+require_text "$SETTINGS_VIEW" '"Запускать при входе в систему"' \
+  "settings do not expose launch at login beside automatic updates"
+require_text "$SETTINGS_VIEW" 'launchAtLoginService.setEnabled' \
+  "the launch-at-login toggle does not change the actual login item"
+require_text "$SETTINGS_VIEW" 'launchAtLoginService.openSystemSettings()' \
+  "approval-required state cannot open macOS Login Items settings"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'SMAppService.mainApp' \
+  "launch at login does not use the supported main-app service"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'appService.register()' \
+  "enabling launch at login never registers the main app"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'appService.unregister()' \
+  "disabling launch at login never unregisters the main app"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'SMAppService.openSystemSettingsLoginItems()' \
+  "login-item approval does not open the supported system panel"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'LaunchAtLoginDefaultsMigration.markLaunchAtLoginHandled' \
+  "a failed first registration is incorrectly remembered as completed"
+require_text "$LAUNCH_AT_LOGIN_SERVICE" 'category: "LaunchAtLogin"' \
+  "launch-at-login failures cannot be diagnosed from the unified log"
 
 echo "SettingsInteractionChecks: OK"

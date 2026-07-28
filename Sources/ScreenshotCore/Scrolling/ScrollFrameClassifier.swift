@@ -35,6 +35,9 @@ public enum ScrollFrameClassifier {
         next: GrayImage,
         policy: ScrollFramePolicy
     ) throws -> ScrollFrameDecision {
+        if isSameViewport(previous, next) {
+            return .unchanged
+        }
         let appendMatch = try OverlapMatcher.bestVerticalMatch(previous: previous, next: next)
         let prependMatch = try OverlapMatcher.bestVerticalMatch(previous: next, next: previous)
         let candidates: [(decision: ScrollFrameDecision, match: VerticalOverlapMatch, newRows: Int)] = [
@@ -54,5 +57,22 @@ public enum ScrollFrameClassifier {
             }
             return $0.match.overlap > $1.match.overlap
         }!.decision
+    }
+
+    private static func isSameViewport(_ previous: GrayImage, _ next: GrayImage) -> Bool {
+        guard previous.width == next.width,
+              previous.height == next.height,
+              previous.pixels.count == next.pixels.count,
+              !previous.pixels.isEmpty else {
+            return false
+        }
+        let stride = max(1, previous.pixels.count / 8_192)
+        var difference: Int64 = 0
+        var compared = 0
+        for index in Swift.stride(from: 0, to: previous.pixels.count, by: stride) {
+            difference += Int64(abs(Int(previous.pixels[index]) - Int(next.pixels[index])))
+            compared += 1
+        }
+        return Double(difference) / Double(compared) <= 2
     }
 }

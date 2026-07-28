@@ -1,6 +1,6 @@
 import CoreGraphics
 
-public enum ScrollCaptureDirection: Sendable {
+public enum ScrollCaptureDirection: Equatable, Sendable {
     case down
     case up
 }

@@ -5,6 +5,9 @@ SETTINGS_VIEW="${1:-Sources/ScreenshotApp/Views/SettingsView.swift}"
 APPLICATION="${2:-Sources/ScreenshotApp/App/ScreenshotApplication.swift}"
 LOCAL_BUILD="${3:-script/build_and_run.sh}"
 RELEASE_BUILD="${4:-script/build_release.sh}"
+VERSION_FILE="${5:-script/version.sh}"
+RELEASE_PACKAGING_CHECK="${6:-Tests/ReleasePackagingChecks.sh}"
+RELEASE_WORKFLOW="${7:-.github/workflows/release.yml}"
 
 require_text() {
   local file="$1"
@@ -34,6 +37,20 @@ require_text "$RELEASE_BUILD" 'APP_NAME="Богдан Скриншот"' \
   "release app bundle still uses the old name"
 require_text "$LOCAL_BUILD" 'CFBundleIconFile' \
   "local app bundle does not declare an icon"
+require_text "$VERSION_FILE" 'SCREENSHOT_APP_CURRENT_VERSION="0.5.25"' \
+  "local app bundle does not expose the current development version"
+require_text "$VERSION_FILE" 'SCREENSHOT_APP_CURRENT_BUILD_NUMBER="39"' \
+  "local app bundle does not expose the current development build"
+require_text "$LOCAL_BUILD" 'source "$ROOT_DIR/script/version.sh"' \
+  "local packaging does not consume the shared version source"
+require_text "$RELEASE_BUILD" 'source "$ROOT_DIR/script/version.sh"' \
+  "Universal packaging does not consume the shared version source"
+require_text "$RELEASE_PACKAGING_CHECK" 'source "$RELEASE_ROOT/script/version.sh"' \
+  "Universal archive verification can drift from the shared version source"
+require_text "$RELEASE_WORKFLOW" 'source script/version.sh' \
+  "CI can drift from the shared application version"
+require_text "$RELEASE_WORKFLOW" 'SCREENSHOT_APP_VERSION=$SCREENSHOT_APP_CURRENT_VERSION' \
+  "CI does not pass the shared application version to Universal packaging"
 require_text "$RELEASE_BUILD" 'CFBundleIconFile' \
   "release app bundle does not declare an icon"
 [[ -s Assets/AppIcon.icns ]] || {

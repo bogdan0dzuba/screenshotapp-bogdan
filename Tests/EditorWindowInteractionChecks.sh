@@ -25,6 +25,7 @@ require_text "$CONTROLLER" "copySession(" "editor copy paths do not share one co
 require_text "$CONTROLLER" "preferences.closeEditorAfterCopy" "editor ignores the close-after-copy preference"
 require_text "$CONTROLLER" "performClose(nil)" "successful copy does not close the editor"
 require_text "$EDITOR_VIEW" "ScrollView(.horizontal" "compact editor clips toolbar actions"
+require_text "$EDITOR_VIEW" '.keyboardShortcut("z", modifiers: .command)' "editor undo button does not expose standard Command-Z"
 require_text "$EDITOR_VIEW" '.keyboardShortcut("c", modifiers: .command)' "editor copy button does not expose standard Command-C"
 require_text "$EDITOR_VIEW" "copyAction" "editor copy button bypasses copy completion handling"
 require_text "$EDITOR_VIEW" ".frame(width: 36, height: 32)" "editor tool targets are too small"

@@ -75,4 +75,121 @@ require_text .github/workflows/release.yml 'swift build --disable-sandbox --prod
 require_text .github/workflows/release.yml '.build/debug/CoreChecks' \
   "CI does not execute the already-built CoreChecks binary"
 
+TEMP_DIR="$(mktemp -d /private/tmp/ScreenshotAppUpdaterIntegration.XXXXXX)"
+cleanup() {
+  /bin/rm -rf -- "$TEMP_DIR"
+}
+trap cleanup EXIT
+
+PUBLISH_ROOT="$TEMP_DIR/project"
+FAKE_BIN="$TEMP_DIR/bin"
+/bin/mkdir -p "$PUBLISH_ROOT/script" "$FAKE_BIN"
+/bin/cp script/publish_release.sh "$PUBLISH_ROOT/script/publish_release.sh"
+
+/bin/cat >"$PUBLISH_ROOT/script/version.sh" <<'SH'
+SCREENSHOT_APP_CURRENT_VERSION="0.5.25"
+SCREENSHOT_APP_CURRENT_BUILD_NUMBER="39"
+SH
+
+/bin/cat >"$PUBLISH_ROOT/script/next_release_build_number.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$1" >"${SCREENSHOT_APP_TEST_CANDIDATE_LOG:?}"
+printf '%s\n' "$2" >"${SCREENSHOT_APP_TEST_APPCAST_LOG:?}"
+printf '%s\n' "$1"
+SH
+
+/bin/cat >"$PUBLISH_ROOT/script/build_release.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "${SCREENSHOT_APP_BUILD_NUMBER:-}" >"${SCREENSHOT_APP_TEST_BUILD_LOG:?}"
+exit 86
+SH
+
+/bin/cat >"$FAKE_BIN/git" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  "branch --show-current")
+    printf '%s\n' "main"
+    ;;
+  "status --porcelain"|"fetch origin main")
+    exit 0
+    ;;
+  "rev-parse HEAD"|"rev-parse origin/main")
+    printf '%s\n' "0123456789abcdef"
+    ;;
+  "rev-list --count HEAD")
+    printf '%s\n' "32"
+    ;;
+  *)
+    echo "unexpected git invocation: $*" >&2
+    exit 97
+    ;;
+esac
+SH
+
+/bin/cat >"$FAKE_BIN/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == "auth status --hostname github.com" ]]; then
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 97
+SH
+
+/bin/chmod +x \
+  "$PUBLISH_ROOT/script/publish_release.sh" \
+  "$PUBLISH_ROOT/script/next_release_build_number.sh" \
+  "$PUBLISH_ROOT/script/build_release.sh" \
+  "$FAKE_BIN/git" \
+  "$FAKE_BIN/gh"
+
+PUBLIC_APPCAST_URL="https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/appcast.xml"
+CANDIDATE_LOG="$TEMP_DIR/candidate.log"
+APPCAST_LOG="$TEMP_DIR/appcast.log"
+BUILD_LOG="$TEMP_DIR/build.log"
+
+run_publish_wiring_case() {
+  local expected_candidate="$1"
+  local supplied_candidate="$2"
+  local output_file="$TEMP_DIR/publish-$expected_candidate.log"
+  local status
+
+  /bin/rm -f -- "$CANDIDATE_LOG" "$APPCAST_LOG" "$BUILD_LOG"
+  if PATH="$FAKE_BIN:$PATH" \
+    SCREENSHOT_APP_BUILD_NUMBER="$supplied_candidate" \
+    SCREENSHOT_APP_TEST_CANDIDATE_LOG="$CANDIDATE_LOG" \
+    SCREENSHOT_APP_TEST_APPCAST_LOG="$APPCAST_LOG" \
+    SCREENSHOT_APP_TEST_BUILD_LOG="$BUILD_LOG" \
+    /bin/bash "$PUBLISH_ROOT/script/publish_release.sh" 0.5.25 \
+    >"$output_file" 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+
+  if [[ "$status" -ne 86 ]]; then
+    /bin/cat "$output_file" >&2
+    echo "UpdaterIntegrationChecks: publish wiring did not reach the controlled build boundary" >&2
+    exit 1
+  fi
+  if [[ ! -f "$CANDIDATE_LOG" || "$(<"$CANDIDATE_LOG")" != "$expected_candidate" ]]; then
+    echo "UpdaterIntegrationChecks: release candidate was not validated" >&2
+    exit 1
+  fi
+  if [[ ! -f "$APPCAST_LOG" || "$(<"$APPCAST_LOG")" != "$PUBLIC_APPCAST_URL" ]]; then
+    echo "UpdaterIntegrationChecks: release candidate was not compared with the public appcast" >&2
+    exit 1
+  fi
+  if [[ ! -f "$BUILD_LOG" || "$(<"$BUILD_LOG")" != "$expected_candidate" ]]; then
+    echo "UpdaterIntegrationChecks: validated release build was not passed to packaging" >&2
+    exit 1
+  fi
+}
+
+run_publish_wiring_case "39" ""
+run_publish_wiring_case "45" "45"
+
 echo "UpdaterIntegrationChecks: OK"

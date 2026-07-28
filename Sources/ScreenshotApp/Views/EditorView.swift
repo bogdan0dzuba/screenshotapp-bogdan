@@ -26,6 +26,7 @@ struct EditorView: View {
                 Button(action: session.undo) { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!session.state.canUndo)
                     .help("Отменить")
+                    .keyboardShortcut("z", modifiers: .command)
                 Button(action: session.redo) { Image(systemName: "arrow.uturn.forward") }
                     .disabled(!session.state.canRedo)
                     .help("Повторить")

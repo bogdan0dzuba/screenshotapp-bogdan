@@ -32,12 +32,13 @@ jobs:
           bash Tests/ReleasePackagingChecks.sh
           bash Tests/RepositoryPublicationChecks.sh
           bash Tests/UpdaterIntegrationChecks.sh
+          bash Tests/ReleaseBuildNumberChecks.sh
 
       - name: Определить версию
         shell: bash
         run: |
-          version="0.5.17"
-          echo "SCREENSHOT_APP_VERSION=$version" >> "$GITHUB_ENV"
+          source script/version.sh
+          echo "SCREENSHOT_APP_VERSION=$SCREENSHOT_APP_CURRENT_VERSION" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Собрать Universal-приложение

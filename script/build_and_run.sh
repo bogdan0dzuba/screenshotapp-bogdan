@@ -10,6 +10,9 @@ MIN_SYSTEM_VERSION="14.0"
 SIGNING_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/script/version.sh"
+APP_VERSION="$SCREENSHOT_APP_CURRENT_VERSION"
+BUILD_NUMBER="$SCREENSHOT_APP_CURRENT_BUILD_NUMBER"
 DIST_DIR="$ROOT_DIR/dist"
 STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-stage-$(id -u)"
 APP_BUNDLE="$STAGE_DIR/$APP_NAME.app"
@@ -121,12 +124,14 @@ bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/HoverPreservationChecks.sh"
 bash "$ROOT_DIR/Tests/CaptureCancellationChecks.sh"
+bash "$ROOT_DIR/Tests/ScrollCaptureInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
 bash "$ROOT_DIR/Tests/ApplicationInstallationChecks.sh"
+bash "$ROOT_DIR/Tests/ReleaseBuildNumberChecks.sh"
 BUILD_BINARY="$(swift build --disable-sandbox --show-bin-path)/$BUILD_PRODUCT"
 
 rm -rf "$STAGE_DIR"
@@ -160,9 +165,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.17</string>
+  <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
-  <string>31</string>
+  <string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>

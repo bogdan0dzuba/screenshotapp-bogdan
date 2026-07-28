@@ -5,7 +5,11 @@ import SwiftUI
 final class SettingsWindowController: NSWindowController {
     private var hasBeenShown = false
 
-    init(model: AppModel, updateService: UpdateService) {
+    init(
+        model: AppModel,
+        updateService: UpdateService,
+        launchAtLoginService: LaunchAtLoginService
+    ) {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 600, height: 430),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -16,7 +20,11 @@ final class SettingsWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ScreenshotApp.Settings")
         window.contentView = NSHostingView(
-            rootView: SettingsView(model: model, updateService: updateService)
+            rootView: SettingsView(
+                model: model,
+                updateService: updateService,
+                launchAtLoginService: launchAtLoginService
+            )
         )
         super.init(window: window)
     }

@@ -276,12 +276,16 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let selection = try await regionSelectionController.selectRegion(using: captureService)
+                let preparedCapture = try await captureService.prepareScrollCapture(
+                    rect: selection.rect
+                )
                 scrollCaptureController?.begin(
                     rect: selection.rect,
                     firstFrame: selection.image,
+                    preparedCapture: preparedCapture,
                     model: self
                 )
-                statusMessage = "Прокрутите содержимое и добавьте кадр"
+                statusMessage = "Область выбрана. Нажмите «Начать» рядом с рамкой"
             } catch CaptureError.cancelled {
                 pendingCaptureSource = nil
                 pendingScrollCaptureID = nil

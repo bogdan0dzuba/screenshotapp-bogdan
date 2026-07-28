@@ -45,6 +45,8 @@ final class RegionSelectionController {
             defer: false
         )
         panel.level = .screenSaver
+        panel.title = "Выбор области снимка"
+        panel.setAccessibilityLabel("Выбор области снимка")
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -53,6 +55,7 @@ final class RegionSelectionController {
             frame: CGRect(origin: .zero, size: screen.frame.size),
             backdropImage: backdropImage
         )
+        overlay.setAccessibilityLabel("Потяните, чтобы выбрать область снимка")
         overlay.onComplete = { [weak self] rect in self?.complete(localRect: rect) }
         overlay.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
         panel.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
@@ -87,11 +90,9 @@ final class RegionSelectionController {
 
     private func captureRect(for screen: NSScreen) -> CGRect {
         let mainTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
-        return CGRect(
-            x: screen.frame.minX,
-            y: mainTop - screen.frame.maxY,
-            width: screen.frame.width,
-            height: screen.frame.height
+        return ScreenCoordinateTransform.captureRect(
+            fromAppKitRect: screen.frame,
+            mainScreenTop: mainTop
         )
     }
 

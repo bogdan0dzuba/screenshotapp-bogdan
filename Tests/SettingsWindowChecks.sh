@@ -24,6 +24,12 @@ require_text "$CONTROLLER" 'NSApp.activate(ignoringOtherApps: true)' \
   "settings window can remain behind other apps"
 require_text "$APP_DELEGATE" 'settingsController = SettingsWindowController(' \
   "application delegate does not retain the settings window"
+require_text "$APP_DELEGATE" 'let launchAtLoginService = LaunchAtLoginService()' \
+  "application delegate does not own one shared launch-at-login service"
+require_text "$APP_DELEGATE" 'launchAtLoginService.enableByDefaultOnce()' \
+  "installed app does not enable launch at login for the first migration"
+require_text "$CONTROLLER" 'launchAtLoginService: LaunchAtLoginService' \
+  "settings window does not receive the shared launch-at-login service"
 require_text "$APP_DELEGATE" 'func showSettings()' \
   "shelf and menu cannot share one settings action"
 require_text "$SHELF_CONTROLLER" 'onOpenSettings: @escaping () -> Void' \

@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updateService: UpdateService
+    @ObservedObject var launchAtLoginService: LaunchAtLoginService
     @ObservedObject private var preferences: AppPreferences
     @State private var draftHotKeyLetter: String
     @State private var draftUseCommand: Bool
@@ -11,9 +12,14 @@ struct SettingsView: View {
     @State private var draftUseOption: Bool
     @State private var draftUseControl: Bool
 
-    init(model: AppModel, updateService: UpdateService) {
+    init(
+        model: AppModel,
+        updateService: UpdateService,
+        launchAtLoginService: LaunchAtLoginService
+    ) {
         self.model = model
         self.updateService = updateService
+        self.launchAtLoginService = launchAtLoginService
         _preferences = ObservedObject(wrappedValue: model.preferences)
         _draftHotKeyLetter = State(initialValue: model.preferences.hotKeyLetter)
         _draftUseCommand = State(initialValue: model.preferences.useCommand)
@@ -100,6 +106,21 @@ struct SettingsView: View {
             }
             Section("Обновления") {
                 Toggle(
+                    "Запускать при входе в систему",
+                    isOn: Binding(
+                        get: { launchAtLoginService.isEnabled },
+                        set: { launchAtLoginService.setEnabled($0) }
+                    )
+                )
+                if let statusMessage = launchAtLoginService.statusMessage {
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Открыть объекты входа…") {
+                        launchAtLoginService.openSystemSettings()
+                    }
+                }
+                Toggle(
                     "Автоматически проверять обновления",
                     isOn: $updateService.automaticallyChecksForUpdates
                 )
@@ -139,6 +160,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { launchAtLoginService.refresh() }
     }
 
     private var hotKeyDraft: HotKey {

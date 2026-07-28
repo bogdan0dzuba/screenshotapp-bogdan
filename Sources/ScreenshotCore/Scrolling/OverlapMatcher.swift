@@ -53,36 +53,123 @@ public enum OverlapMatcher {
             throw OverlapMatcherError.incompatibleWidths
         }
 
-        let maximum = min(previous.height, next.height) - 1
+        let commonHeight = min(previous.height, next.height)
+        let fixedTopRows = matchingTopBandRows(previous: previous, next: next)
+        let contentHeight = commonHeight - fixedTopRows
+        let maximum = contentHeight - 1
         guard maximum > 0 else {
-            return VerticalOverlapMatch(overlap: 0, meanDifference: .greatestFiniteMagnitude)
+            return VerticalOverlapMatch(overlap: 0, meanDifference: .infinity)
         }
 
         var bestOverlap = 0
-        var bestScore = Double.greatestFiniteMagnitude
-        for overlap in 1...maximum {
-            let previousStart = previous.height - overlap
-            let rowStride = max(1, overlap / 64)
+        var bestScore = Double.infinity
+        for contentOverlap in 1...maximum {
+            let previousStart = previous.height - contentOverlap
+            let nextStart = fixedTopRows
+            let rowStride = max(1, contentOverlap / 64)
             let columnStride = max(1, previous.width / 48)
             var difference: Int64 = 0
+            var sampled = 0
             var compared = 0
-            for row in stride(from: 0, to: overlap, by: rowStride) {
+            for row in stride(from: 0, to: contentOverlap, by: rowStride) {
                 let previousOffset = (previousStart + row) * previous.width
-                let nextOffset = row * next.width
+                let nextOffset = (nextStart + row) * next.width
                 for column in stride(from: 0, to: previous.width, by: columnStride) {
+                    sampled += 1
+                    let previousContrast = localContrast(
+                        in: previous,
+                        row: previousStart + row,
+                        column: column
+                    )
+                    let nextContrast = localContrast(
+                        in: next,
+                        row: nextStart + row,
+                        column: column
+                    )
+                    guard max(previousContrast, nextContrast) >= 8 else { continue }
                     difference += Int64(
                         abs(Int(previous.pixels[previousOffset + column]) - Int(next.pixels[nextOffset + column]))
                     )
                     compared += 1
                 }
             }
+            let minimumInformativeSamples = min(sampled, max(8, sampled / 50))
+            guard compared >= minimumInformativeSamples else { continue }
             let score = Double(difference) / Double(compared)
-            if score < bestScore || (score == bestScore && overlap > bestOverlap) {
+            let fullFrameOverlap = fixedTopRows + contentOverlap
+            if score < bestScore || (score == bestScore && fullFrameOverlap > bestOverlap) {
                 bestScore = score
-                bestOverlap = overlap
+                bestOverlap = fullFrameOverlap
             }
         }
 
         return VerticalOverlapMatch(overlap: bestOverlap, meanDifference: bestScore)
+    }
+
+    private static func matchingTopBandRows(previous: GrayImage, next: GrayImage) -> Int {
+        let maximumBandHeight = min(previous.height, next.height) / 3
+        guard maximumBandHeight > 0 else { return 0 }
+
+        let columnStride = max(1, previous.width / 48)
+        var matchingRows = 0
+        var sampled = 0
+        var informative = 0
+        for row in 0..<maximumBandHeight {
+            let previousOffset = row * previous.width
+            let nextOffset = row * next.width
+            var difference = 0
+            var compared = 0
+            for column in stride(from: 0, to: previous.width, by: columnStride) {
+                sampled += 1
+                difference += abs(
+                    Int(previous.pixels[previousOffset + column]) - Int(next.pixels[nextOffset + column])
+                )
+                if max(
+                    localContrast(in: previous, row: row, column: column),
+                    localContrast(in: next, row: row, column: column)
+                ) >= 8 {
+                    informative += 1
+                }
+                compared += 1
+            }
+            guard Double(difference) / Double(compared) <= 6 else { break }
+            matchingRows = row + 1
+        }
+        let minimumInformativeSamples = min(sampled, max(8, sampled / 50))
+        return informative >= minimumInformativeSamples ? matchingRows : 0
+    }
+
+    private static func localContrast(
+        in image: GrayImage,
+        row: Int,
+        column: Int
+    ) -> Int {
+        let value = Int(image.pixels[row * image.width + column])
+        var contrast = 0
+        if row > 0 {
+            contrast = max(
+                contrast,
+                abs(value - Int(image.pixels[(row - 1) * image.width + column]))
+            )
+        }
+        if row + 1 < image.height {
+            contrast = max(
+                contrast,
+                abs(value - Int(image.pixels[(row + 1) * image.width + column]))
+            )
+        }
+        if column > 0 {
+            contrast = max(
+                contrast,
+                abs(value - Int(image.pixels[row * image.width + column - 1]))
+            )
+        }
+        if column + 1 < image.width {
+            contrast = max(
+                contrast,
+                abs(value - Int(image.pixels[row * image.width + column + 1]))
+            )
+        }
+        return contrast
     }
 }
