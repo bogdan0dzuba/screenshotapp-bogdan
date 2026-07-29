@@ -43,7 +43,8 @@ require_text "$CONTROLLER" "ScrollCaptureCoverageView" "captured and pending por
 require_text "$CONTROLLER" "ScrollCaptureTrail" "accepted content has no persistent external trail model"
 require_text "$CONTROLLER" "trailOverlay" "accepted content has no screen-sized external trail overlay"
 require_text "$CONTROLLER" "panel.ignoresMouseEvents = true" "the external trail overlay can still swallow clicks over the scrolled page"
-require_text "$CONTROLLER" "panel.sharingType = .none" "the external trail overlay is not excluded from screen sharing"
+reject_text "$CONTROLLER" "sharingType = .none" "the external trail is hidden from screen recording, so the captured volume cannot be shown or verified"
+require_text "$CONTROLLER" "panel.sharingType = .readOnly" "the external trail overlay has no explicit screen-sharing policy"
 require_text "$CONTROLLER" "trail.undoLast()" "removing a frame does not shrink the accumulated external trail"
 cancel_teardown="$(/usr/bin/sed -n '/func cancel()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Fc "feedbackOverlay.hide()" || true)"
 if (( cancel_teardown < 1 )); then

@@ -465,7 +465,10 @@ final class ScrollCaptureController: ObservableObject {
             panel.backgroundColor = .clear
             panel.hasShadow = true
             panel.hidesOnDeactivate = false
-            panel.sharingType = .none
+            // Служебные панели остаются доступны записи экрана: иначе снятый объём
+            // невозможно ни показать, ни проверить скринкастом. В итоговый PNG они
+            // всё равно не попадают - SCContentFilter исключает приложение целиком.
+            panel.sharingType = .readOnly
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             panel.contentView = NSHostingView(rootView: ScrollCaptureControlsView(controller: self))
             panel.title = "Управление снимком с прокруткой"
@@ -647,7 +650,7 @@ private final class ScrollCaptureFeedbackOverlay {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
-        panel.sharingType = .none
+        panel.sharingType = .readOnly
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         return panel
     }
