@@ -11,6 +11,15 @@ final class ScrollCaptureController: ObservableObject {
     @Published private(set) var hasStarted = false
     @Published private(set) var feedbackState = ScrollCaptureFeedbackState.ready
     @Published private(set) var message = "Область выбрана. Нажмите «Начать», затем прокручивайте небольшими шагами"
+    @Published private(set) var previewImage: CGImage?
+
+    var previewBadge: ScrollCapturePreviewBadge {
+        ScrollCapturePreviewBadgePolicy.badge(
+            state: feedbackState,
+            isPaused: isPaused,
+            isFinalizing: isFinalizing
+        )
+    }
 
     var canStart: Bool {
         isCapturing
@@ -30,9 +39,10 @@ final class ScrollCaptureController: ObservableObject {
     private var session = ScrollCaptureSession(frames: [])
     private var selectedFirstFrame: CGImage?
     private var frameSettler = ScrollFrameSettler()
-    private var trail = ScrollCaptureTrail()
+    private var previewCanvas = ScrollCapturePreviewCanvas()
     private weak var model: AppModel?
     private var panel: NSPanel?
+    private var previewPanel: NSPanel?
     private var baselineTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
     private var stitchingTask: Task<Void, Never>?
@@ -46,6 +56,12 @@ final class ScrollCaptureController: ObservableObject {
     private var captureInFlight = false
     private var captureGeneration = 0
     private var classificationFrames: [CGImage] = []
+    private var autoScrollTask: Task<Void, Never>?
+    private var restoreCursorTo: CGPoint?
+
+    @Published private(set) var isAutoScrolling = false
+
+    var canAutoScroll: Bool { hasStarted && isCapturing && !isFinalizing }
 
     func begin(
         rect: CGRect,
@@ -59,6 +75,7 @@ final class ScrollCaptureController: ObservableObject {
         captureTask = nil
         stitchingTask?.cancel()
         stitchingTask = nil
+        stopAutoScroll(message: nil)
         self.rect = rect
         self.model = model
         self.preparedCapture = preparedCapture
@@ -68,7 +85,8 @@ final class ScrollCaptureController: ObservableObject {
         session = ScrollCaptureSession(frames: [])
         classificationFrames.removeAll()
         frameSettler.reset()
-        trail.reset()
+        previewCanvas.reset()
+        previewImage = nil
         captureGeneration &+= 1
         frameCount = 0
         isCapturing = true
@@ -111,6 +129,7 @@ final class ScrollCaptureController: ObservableObject {
         guard isCapturing, hasStarted else { return }
         isPaused.toggle()
         if isPaused {
+            stopAutoScroll(message: nil)
             captureGeneration &+= 1
             frameSettler.reset()
             message = "Пауза. Можно проверить страницу или убрать последний кадр"
@@ -125,6 +144,7 @@ final class ScrollCaptureController: ObservableObject {
 
     func undoFrame() {
         guard !isFinalizing else { return }
+        stopAutoScroll(message: nil)
         captureGeneration &+= 1
         isPaused = true
         let previousFrameCount = session.frames.count
@@ -132,7 +152,8 @@ final class ScrollCaptureController: ObservableObject {
         if session.frames.count < previousFrameCount, classificationFrames.count > 1 {
             classificationFrames.removeLast()
         }
-        trail.undoLast()
+        previewCanvas.undoLast()
+        refreshPreview()
         frameSettler.reset()
         frameCount = session.frames.count
         if frameCount <= 1 {
@@ -150,6 +171,7 @@ final class ScrollCaptureController: ObservableObject {
             return
         }
         isFinalizing = true
+        stopAutoScroll(message: nil)
         baselineTask?.cancel()
         baselineTask = nil
         captureTask?.cancel()
@@ -177,8 +199,8 @@ final class ScrollCaptureController: ObservableObject {
                 panel?.orderOut(nil)
                 panel = nil
                 feedbackOverlay.hide()
+                hidePreviewPanel()
                 releaseCapturedFrames()
-                trail.reset()
                 self.model = nil
                 preparedCapture = nil
                 stitchingTask = nil
@@ -197,6 +219,7 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     func cancel() {
+        stopAutoScroll(message: nil)
         baselineTask?.cancel()
         baselineTask = nil
         captureTask?.cancel()
@@ -212,7 +235,7 @@ final class ScrollCaptureController: ObservableObject {
         lockedDirection = nil
         releaseCapturedFrames()
         frameSettler.reset()
-        trail.reset()
+        hidePreviewPanel()
         panel?.orderOut(nil)
         panel = nil
         feedbackOverlay.hide()
@@ -267,6 +290,9 @@ final class ScrollCaptureController: ObservableObject {
             selectedFirstFrame = nil
             session = ScrollCaptureSession(frames: [firstFrame])
             classificationFrames = [normalizedImage]
+            try? previewCanvas.start(with: firstFrame)
+            refreshPreview()
+            showPreviewPanel()
             frameSettler.reset()
             frameCount = 1
             hasStarted = true
@@ -390,25 +416,18 @@ final class ScrollCaptureController: ObservableObject {
                 switch decision {
                 case let .append(overlap):
                     session.add(normalizedImage, direction: .down, overlap: overlap)
-                    trail.append(
-                        frameHeight: normalizedImage.height,
-                        overlap: overlap,
-                        captureHeight: rect.height
-                    )
+                    try? previewCanvas.append(frame: normalizedImage, overlap: overlap)
                     lockedDirection = .down
                 case let .prepend(overlap):
                     session.add(normalizedImage, direction: .up, overlap: overlap)
-                    trail.prepend(
-                        frameHeight: normalizedImage.height,
-                        overlap: overlap,
-                        captureHeight: rect.height
-                    )
+                    try? previewCanvas.prepend(frame: normalizedImage, overlap: overlap)
                     lockedDirection = .up
                 case .unchanged, .insufficientOverlap:
                     return
                 }
                 classificationFrames.append(normalizedImage)
                 frameCount = session.frames.count
+                refreshPreview()
                 presentLatestCapturedViewport()
                 message = "Кадр \(frameCount) сохранён ✓ Можно прокручивать дальше"
                 feedbackOverlay.present(state: feedbackState, frameCount: frameCount)
@@ -421,6 +440,7 @@ final class ScrollCaptureController: ObservableObject {
             // Отменённый или устаревший кадр не имеет права трогать HUD: иначе пауза,
             // «Убрать кадр» и «Отмена» получают чужое оранжевое предупреждение.
             guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
+            stopAutoScroll(message: nil)
             isPaused = true
             message = "Захват приостановлен: \(error.localizedDescription)"
             feedbackOverlay.presentError(message: "Нажмите «Продолжить», чтобы повторить")
@@ -440,7 +460,7 @@ final class ScrollCaptureController: ObservableObject {
             feedbackOverlay.presentSelectionReady()
             return
         }
-        feedbackOverlay.presentCapturedViewport(trail: trail)
+        feedbackOverlay.presentCapturedViewport()
     }
 
     private func presentOverlapRecoveryTarget() {
@@ -451,10 +471,142 @@ final class ScrollCaptureController: ObservableObject {
         feedbackOverlay.presentNeedsOverlap()
     }
 
+    /// Автопрокрутка: приложение само двигает страницу шагом меньше рамки и ждёт,
+    /// пока склейка примет кадр. Требует «Универсального доступа»; при отказе
+    /// остаётся ручной режим, ничего не ломается.
+    func toggleAutoScroll() {
+        guard canAutoScroll else { return }
+        if isAutoScrolling {
+            stopAutoScroll(message: "Автопрокрутка остановлена. Можно крутить вручную или нажать «Готово»")
+            return
+        }
+        guard requestAccessibilityIfNeeded() else {
+            message = "Нужен «Универсальный доступ» в Системных настройках. Пока прокручивайте вручную"
+            feedbackOverlay.presentError(message: "Разрешите «Универсальный доступ»")
+            return
+        }
+        isAutoScrolling = true
+        isPaused = false
+        startCaptureLoopIfNeeded()
+        restoreCursorTo = CGEvent(source: nil)?.location
+        // Колесо доставляется окну под курсором, поэтому курсор уводится в центр рамки.
+        // rect уже в координатах захвата - там же, где их ждёт CGWarpMouseCursorPosition.
+        CGWarpMouseCursorPosition(CGPoint(x: rect.midX, y: rect.midY))
+        message = "Кручу сам. Нажмите «Стоп», если нужно вмешаться"
+
+        let direction = lockedDirection ?? .down
+        let step = ScrollAutoAdvancePolicy.step(captureHeight: rect.height, direction: direction)
+        let generation = captureGeneration
+        autoScrollTask = Task { [weak self] in
+            var idleRounds = 0
+            while !Task.isCancelled {
+                guard let self, isAutoScrolling, generation == captureGeneration else { return }
+                guard frameCount < maximumFrameCount else {
+                    stopAutoScroll(message: "Достигнут безопасный лимит в \(maximumFrameCount) кадров. Нажмите «Готово»")
+                    return
+                }
+                let before = frameCount
+                postScrollStep(step.wheelDelta)
+                do {
+                    try await Task.sleep(for: .seconds(step.settleSeconds))
+                } catch {
+                    return
+                }
+                guard isAutoScrolling, generation == captureGeneration else { return }
+                idleRounds = frameCount > before ? 0 : idleRounds + 1
+                if ScrollAutoAdvancePolicy.reachedEndOfPage(idleRounds: idleRounds) {
+                    stopAutoScroll(message: "Похоже, страница закончилась. Нажмите «Готово»")
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopAutoScroll(message newMessage: String?) {
+        autoScrollTask?.cancel()
+        autoScrollTask = nil
+        guard isAutoScrolling else { return }
+        isAutoScrolling = false
+        if let restoreCursorTo {
+            CGWarpMouseCursorPosition(restoreCursorTo)
+        }
+        restoreCursorTo = nil
+        if let newMessage {
+            message = newMessage
+        }
+    }
+
+    private func postScrollStep(_ delta: Int) {
+        guard let source = CGEventSource(stateID: .combinedSessionState),
+              let event = CGEvent(
+                scrollWheelEvent2Source: source,
+                units: .pixel,
+                wheelCount: 1,
+                wheel1: Int32(clamping: delta),
+                wheel2: 0,
+                wheel3: 0
+              ) else {
+            return
+        }
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func requestAccessibilityIfNeeded() -> Bool {
+        if AXIsProcessTrusted() { return true }
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+
+    private func refreshPreview() {
+        previewImage = (try? previewCanvas.composed()) ?? nil
+    }
+
+    /// Панель-рельс с растущей склейкой. Стоит сбоку от рамки, не перехватывает мышь
+    /// и никогда не наезжает на прокручиваемое содержимое.
+    private func showPreviewPanel() {
+        guard previewPanel == nil,
+              let appKitRect = appKitCaptureRect(for: rect),
+              let screen = NSScreen.screens.first(where: { $0.frame.intersects(appKitRect) })
+                ?? NSScreen.main,
+              let frame = ScrollCapturePreviewPlacement.frame(
+                near: appKitRect,
+                visibleFrame: screen.visibleFrame
+              ) else {
+            return
+        }
+        let previewPanel = NSPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        previewPanel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        previewPanel.isFloatingPanel = true
+        previewPanel.isOpaque = false
+        previewPanel.backgroundColor = .clear
+        previewPanel.hasShadow = true
+        previewPanel.hidesOnDeactivate = false
+        previewPanel.ignoresMouseEvents = true
+        previewPanel.sharingType = .readOnly
+        previewPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        previewPanel.contentView = NSHostingView(rootView: ScrollCapturePreviewView(controller: self))
+        previewPanel.title = "Накопленный длинный снимок"
+        previewPanel.setAccessibilityLabel("Накопленный длинный снимок")
+        previewPanel.orderFrontRegardless()
+        self.previewPanel = previewPanel
+    }
+
+    private func hidePreviewPanel() {
+        previewPanel?.orderOut(nil)
+        previewPanel = nil
+        previewCanvas.reset()
+        previewImage = nil
+    }
+
     private func showPanel() {
         if panel == nil {
             let panel = KeyableScrollCapturePanel(
-                contentRect: CGRect(x: 0, y: 0, width: 620, height: 176),
+                contentRect: CGRect(x: 0, y: 0, width: 720, height: 176),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -504,7 +656,6 @@ private final class ScrollCaptureFeedbackOverlay {
     private var borderPanels: [NSPanel] = []
     private var outsideShadePanels: [NSPanel] = []
     private var coveragePanel: NSPanel?
-    private var trailOverlay: NSPanel?
     private var coverageView: ScrollCaptureCoverageView?
     private var captureRect: CGRect = .zero
     private var screenRect: CGRect = .zero
@@ -559,11 +710,10 @@ private final class ScrollCaptureFeedbackOverlay {
         let coverageView = ScrollCaptureCoverageView(
             frame: CGRect(origin: .zero, size: screenBounds.size)
         )
-        coverageView.configure(captureRect: appKitRect, screenRect: screenBounds, trail: .init())
+        coverageView.configure(captureRect: appKitRect, screenRect: screenBounds)
         coveragePanel.contentView = coverageView
         coveragePanel.orderFrontRegardless()
         self.coveragePanel = coveragePanel
-        self.trailOverlay = coveragePanel
         self.coverageView = coverageView
 
         let strips = [
@@ -591,8 +741,7 @@ private final class ScrollCaptureFeedbackOverlay {
         coverageView?.presentSelectionReady()
     }
 
-    func presentCapturedViewport(trail: ScrollCaptureTrail = .init()) {
-        coverageView?.configure(captureRect: captureRect, screenRect: screenRect, trail: trail)
+    func presentCapturedViewport() {
         coverageView?.presentCapturedViewport()
     }
 
@@ -624,7 +773,6 @@ private final class ScrollCaptureFeedbackOverlay {
         outsideShadePanels.removeAll()
         coveragePanel?.orderOut(nil)
         coveragePanel = nil
-        trailOverlay = nil
         coverageView = nil
     }
 

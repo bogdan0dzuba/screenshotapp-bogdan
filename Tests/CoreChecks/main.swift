@@ -739,56 +739,118 @@ private func checkScrollCaptureCoveragePolicy() throws {
     )
 }
 
-private func checkScrollCaptureTrail() throws {
-    var trail = ScrollCaptureTrail()
-    trail.append(frameHeight: 1_000, overlap: 600, captureHeight: 500)
-    try expect(trail.appendHeight == 200, "append trail uses the new-content ratio")
-    trail.prepend(frameHeight: 1_000, overlap: 800, captureHeight: 500)
-    try expect(trail.prependHeight == 100, "prepend trail uses the new-content ratio")
+private func checkScrollCapturePreviewCanvas() throws {
+    // Первый кадр попадает в превью целиком, дальше добавляются только новые строки.
+    let first = try makeGrayImage(width: 2, height: 6, pixels: [10, 10, 20, 20, 30, 30, 40, 40, 50, 50, 60, 60])
+    let below = try makeGrayImage(width: 2, height: 6, pixels: [40, 40, 50, 50, 60, 60, 70, 70, 80, 80, 90, 90])
+    var canvas = ScrollCapturePreviewCanvas(width: 2)
+    try canvas.start(with: first)
+    try expect(canvas.totalHeight == 6, "the preview starts with the whole hover-safe first frame")
+    try canvas.append(frame: below, overlap: 3)
+    try expect(
+        canvas.totalHeight == 9,
+        "a downward frame adds only its new rows to the preview"
+    )
+    let composed = try requireValue(try canvas.composed(), "the preview composes an image")
+    let composedPixels = try ScrollStitcher.grayImage(from: composed).pixels
+    try expect(
+        composedPixels == [
+            10, 10, 20, 20, 30, 30, 40, 40, 50, 50, 60, 60, 70, 70, 80, 80, 90, 90,
+        ],
+        "the growing preview matches what the final stitch will produce"
+    )
+    canvas.undoLast()
+    try expect(canvas.totalHeight == 6, "removing a frame shrinks the preview by the same slice")
 
-    // Рамка в координатах AppKit занимает y 100...600, экран - y 0...700.
-    let captureRect = CGRect(x: 100, y: 100, width: 300, height: 500)
-    let screenRect = CGRect(x: 0, y: 0, width: 800, height: 700)
-    let downRect = trail.externalRect(
-        captureRect: captureRect,
-        screenRect: screenRect,
-        direction: .down
-    )
+    // Вверх новые строки становятся перед полным первым кадром.
+    let above = try makeGrayImage(width: 2, height: 6, pixels: [0, 0, 1, 1, 2, 2, 10, 10, 20, 20, 30, 30])
+    try canvas.prepend(frame: above, overlap: 3)
+    let upComposed = try requireValue(try canvas.composed(), "the upward preview composes an image")
+    let upPixels = try ScrollStitcher.grayImage(from: upComposed).pixels
     try expect(
-        downRect.maxY <= captureRect.minY,
-        "downward scrolling grows the trail below the selected rectangle"
+        upPixels == [
+            0, 0, 1, 1, 2, 2, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50, 60, 60,
+        ],
+        "an upward frame prepends only its new rows and keeps the full first frame"
     )
+    canvas.reset()
+    try expect(canvas.isEmpty, "reset clears the preview")
+}
+
+private func checkScrollCapturePreviewPlacement() throws {
+    let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+    let rect = CGRect(x: 200, y: 250, width: 500, height: 400)
+    let right = try requireValue(
+        ScrollCapturePreviewPlacement.frame(near: rect, visibleFrame: screen),
+        "the rail finds room beside the selection"
+    )
+    try expect(right.minX >= rect.maxX, "the rail never covers the scrolled content")
     try expect(
-        downRect == CGRect(x: 100, y: 0, width: 300, height: 100),
-        "the downward trail clips to its screen instead of drawing off-display"
-    )
-    let upRect = trail.externalRect(
-        captureRect: captureRect,
-        screenRect: screenRect,
-        direction: .up
-    )
-    try expect(
-        upRect.minY >= captureRect.maxY,
-        "upward scrolling grows the trail above the selected rectangle"
-    )
-    try expect(
-        upRect == CGRect(x: 100, y: 600, width: 300, height: 100),
-        "the upward trail keeps the full accepted height when the screen allows it"
-    )
-    let clippedUp = trail.externalRect(
-        captureRect: captureRect,
-        screenRect: CGRect(x: 0, y: 0, width: 800, height: 650),
-        direction: .up
-    )
-    try expect(
-        clippedUp == CGRect(x: 100, y: 600, width: 300, height: 50),
-        "the upward trail clips to its screen"
+        screen.contains(right),
+        "the rail stays on screen"
     )
 
-    trail.undoLast()
-    try expect(trail.prependHeight == 0 && trail.appendHeight == 200, "undo removes the last trail increment")
-    trail.reset()
-    try expect(trail.appendHeight == 0 && trail.prependHeight == 0, "reset clears the trail")
+    // Рамка прижата к правому краю - рельс уходит налево, а не за экран.
+    let hugsRight = CGRect(x: 1_100, y: 250, width: 320, height: 400)
+    let left = try requireValue(
+        ScrollCapturePreviewPlacement.frame(near: hugsRight, visibleFrame: screen),
+        "the rail falls back to the other side"
+    )
+    try expect(left.maxX <= hugsRight.minX, "the fallback rail sits left of the selection")
+    try expect(screen.contains(left), "the fallback rail stays on screen")
+
+    // Выделение во всю ширину - места нет ни с одной стороны.
+    let fullWidth = CGRect(x: 0, y: 100, width: 1_440, height: 600)
+    try expect(
+        ScrollCapturePreviewPlacement.frame(near: fullWidth, visibleFrame: screen) == nil,
+        "a full-width selection reports that there is no room for the rail"
+    )
+}
+
+private func checkScrollCapturePreviewBadge() throws {
+    try expect(
+        ScrollCapturePreviewBadgePolicy.badge(state: .ready, isPaused: false, isFinalizing: true).tone == .working,
+        "stitching outranks every other badge state"
+    )
+    try expect(
+        ScrollCapturePreviewBadgePolicy.badge(state: .acceptedDown, isPaused: true, isFinalizing: false).title == "Пауза",
+        "a paused session reports the pause instead of the last accepted frame"
+    )
+    try expect(
+        ScrollCapturePreviewBadgePolicy.badge(state: .needsOverlap, isPaused: false, isFinalizing: false).tone == .warning,
+        "a lost overlap is reported as a warning"
+    )
+    try expect(
+        ScrollCapturePreviewBadgePolicy.badge(state: .acceptedUp, isPaused: false, isFinalizing: false).tone == .accepted,
+        "an accepted upward frame reads the same as a downward one"
+    )
+}
+
+private func checkScrollAutoAdvancePolicy() throws {
+    let step = ScrollAutoAdvancePolicy.step(captureHeight: 600, direction: .down)
+    try expect(step.wheelDelta == -200, "a downward step moves a third of the selection")
+    try expect(
+        step.settleSeconds > 0.36 + 0.32,
+        "the step waits longer than one poll plus the settle interval, so it cannot outrun stitching"
+    )
+    let up = ScrollAutoAdvancePolicy.step(captureHeight: 600, direction: .up)
+    try expect(up.wheelDelta == 200, "an upward step moves the page the other way")
+    try expect(
+        ScrollAutoAdvancePolicy.step(captureHeight: 30, direction: .down).wheelDelta == -ScrollAutoAdvancePolicy.minimumStep,
+        "a tiny selection still scrolls by a usable step"
+    )
+    try expect(
+        ScrollAutoAdvancePolicy.step(captureHeight: 9_000, direction: .down).wheelDelta == -ScrollAutoAdvancePolicy.maximumStep,
+        "a huge selection cannot jump past its own overlap"
+    )
+    try expect(
+        !ScrollAutoAdvancePolicy.reachedEndOfPage(idleRounds: ScrollAutoAdvancePolicy.idleRoundsBeforeStop - 1),
+        "one missed frame is not the end of the page"
+    )
+    try expect(
+        ScrollAutoAdvancePolicy.shouldStop(idleRounds: 0, frameCount: 80, maximumFrameCount: 80),
+        "auto scrolling stops at the safety limit"
+    )
 }
 
 private func checkScrollCaptureCoverageRendering() throws {
@@ -878,56 +940,34 @@ private func checkScrollCaptureCoverageRendering() throws {
             + "(low alpha: \(pendingUpLowAlpha), high alpha: \(pendingUpHighAlpha))"
     )
 
-    // Рамка занимает y 300...600 в координатах AppKit; след вниз должен лечь на y 150...300.
+    // За пределами рамки не рисуется ничего: прогресс показывает панель-рельс,
+    // а страница под рамкой остаётся открытой.
     let selectionRect = CGRect(x: 50, y: 300, width: 200, height: 300)
-    var downTrail = ScrollCaptureTrail()
-    downTrail.append(frameHeight: 1_000, overlap: 500, captureHeight: 300)
-    view.configure(captureRect: selectionRect, screenRect: bounds, trail: downTrail)
+    view.configure(captureRect: selectionRect, screenRect: bounds)
     view.presentCapturedViewport()
-    let downTrailBitmap = try renderedBitmap()
+    let scopedBitmap = try renderedBitmap()
     try expect(
-        alpha(downTrailBitmap, x: 150, y: 200) > 0.15
-            && alpha(downTrailBitmap, x: 150, y: 50) < 0.01
-            && alpha(downTrailBitmap, x: 150, y: 800) < 0.01
-            && alpha(downTrailBitmap, x: 20, y: 200) < 0.01,
-        "downward scrolling renders the accepted trail below the selected rectangle only"
+        alpha(scopedBitmap, x: 150, y: 450) > 0.15
+            && alpha(scopedBitmap, x: 150, y: 200) < 0.01
+            && alpha(scopedBitmap, x: 150, y: 700) < 0.01
+            && alpha(scopedBitmap, x: 20, y: 450) < 0.01,
+        "the accepted mark stays inside the selected rectangle and never paints the page around it"
     )
 
-    view.presentNeedsOverlap()
-    let warningTrailBitmap = try renderedBitmap()
-    try expect(
-        alpha(warningTrailBitmap, x: 150, y: 200) > 0.15
-            && alpha(warningTrailBitmap, x: 150, y: 450) < 0.01,
-        "the overlap warning keeps the external trail while releasing the in-frame mark"
-    )
-
-    var upTrail = ScrollCaptureTrail()
-    upTrail.prepend(frameHeight: 1_000, overlap: 500, captureHeight: 300)
-    view.configure(captureRect: selectionRect, screenRect: bounds, trail: upTrail)
-    view.presentCapturedViewport()
-    let upTrailBitmap = try renderedBitmap()
-    try expect(
-        alpha(upTrailBitmap, x: 150, y: 700) > 0.15
-            && alpha(upTrailBitmap, x: 150, y: 200) < 0.01
-            && alpha(upTrailBitmap, x: 150, y: 800) < 0.01,
-        "upward scrolling renders the accepted trail above the selected rectangle only"
-    )
-
-    // Тот же след на дисплее со смещённым началом координат должен попасть в те же пиксели вида.
+    // Тот же кадр на дисплее со смещённым началом координат должен попасть в те же пиксели вида.
     let offsetScreen = CGRect(x: 100, y: 200, width: 300, height: 900)
     let offsetView = ScrollCaptureCoverageView(frame: CGRect(origin: .zero, size: offsetScreen.size))
     offsetView.appearance = NSAppearance(named: .aqua)
     offsetView.configure(
         captureRect: selectionRect.offsetBy(dx: offsetScreen.minX, dy: offsetScreen.minY),
-        screenRect: offsetScreen,
-        trail: downTrail
+        screenRect: offsetScreen
     )
     offsetView.presentCapturedViewport()
     let offsetBitmap = try renderedBitmap(offsetView)
     try expect(
-        alpha(offsetBitmap, x: 150, y: 200) > 0.15
-            && alpha(offsetBitmap, x: 150, y: 800) < 0.01,
-        "a secondary display origin is subtracted before the trail is drawn"
+        alpha(offsetBitmap, x: 150, y: 450) > 0.15
+            && alpha(offsetBitmap, x: 150, y: 200) < 0.01,
+        "a secondary display origin is subtracted before the in-frame mark is drawn"
     )
 }
 
@@ -2221,8 +2261,11 @@ do {
     try checkScrollCaptureDirectionPolicy()
     try checkScrollCaptureFeedbackPolicy()
     try checkScrollCaptureCoveragePolicy()
-    try checkScrollCaptureTrail()
     try checkScrollCaptureCoverageRendering()
+    try checkScrollCapturePreviewCanvas()
+    try checkScrollCapturePreviewPlacement()
+    try checkScrollCapturePreviewBadge()
+    try checkScrollAutoAdvancePolicy()
     try checkCaptureCompletionPolicy()
     try checkAreaCaptureRecoveryPolicy()
     try checkCaptureProcessOutcome()

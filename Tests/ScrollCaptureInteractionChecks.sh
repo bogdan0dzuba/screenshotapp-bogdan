@@ -40,20 +40,30 @@ require_text "$CONTROLLER" "ScrollCapturePanelPlacement.frame" "the control HUD 
 require_text "$CONTROLLER" "panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)" "the dimming overlay can cover the Start and Done controls"
 require_text "$CONTROLLER" "outsideShadePanels" "screen outside the selected scroll area is not dimmed"
 require_text "$CONTROLLER" "ScrollCaptureCoverageView" "captured and pending portions have no persistent visual mask"
-require_text "$CONTROLLER" "ScrollCaptureTrail" "accepted content has no persistent external trail model"
-require_text "$CONTROLLER" "trailOverlay" "accepted content has no screen-sized external trail overlay"
-require_text "$CONTROLLER" "panel.ignoresMouseEvents = true" "the external trail overlay can still swallow clicks over the scrolled page"
-reject_text "$CONTROLLER" "sharingType = .none" "the external trail is hidden from screen recording, so the captured volume cannot be shown or verified"
-require_text "$CONTROLLER" "panel.sharingType = .readOnly" "the external trail overlay has no explicit screen-sharing policy"
-require_text "$CONTROLLER" "trail.undoLast()" "removing a frame does not shrink the accumulated external trail"
-cancel_teardown="$(/usr/bin/sed -n '/func cancel()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Fc "feedbackOverlay.hide()" || true)"
-if (( cancel_teardown < 1 )); then
-  echo "ScrollCaptureInteractionChecks: cancelling a scroll capture leaves the external trail on screen" >&2
+reject_text "$COVERAGE_VIEW" "externalTrailRects" "the overlay paints the page outside the selection again instead of using the preview rail"
+require_text "$CONTROLLER" "ScrollCapturePreviewCanvas" "the accepted content has no growing preview of the real stitch"
+require_text "$CONTROLLER" "previewPanel" "the growing stitch has no rail panel beside the selection"
+require_text "$CONTROLLER" "ScrollCapturePreviewPlacement.frame" "the preview rail is not anchored beside the selected area"
+require_text "$CONTROLLER" "previewPanel.ignoresMouseEvents = true" "the preview rail can swallow clicks over the scrolled page"
+reject_text "$CONTROLLER" "sharingType = .none" "scroll capture guides are hidden from screen recording, so the result cannot be shown or verified"
+require_text "$CONTROLLER" "previewPanel.sharingType = .readOnly" "the preview rail has no explicit screen-sharing policy"
+require_text "$CONTROLLER" "previewCanvas.undoLast()" "removing a frame does not shrink the accumulated preview"
+require_text "$CONTROLLER" "AXIsProcessTrustedWithOptions" "auto scrolling never asks for the Accessibility permission it needs"
+require_text "$CONTROLLER" "ScrollAutoAdvancePolicy.step" "auto scrolling picks its step size ad hoc instead of using a shared policy"
+require_text "$CONTROLLER" "CGWarpMouseCursorPosition" "auto scrolling posts wheel events without aiming them at the selected area"
+cancel_teardown="$(/usr/bin/sed -n '/func cancel()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Ec "feedbackOverlay.hide\(\)|hidePreviewPanel\(\)" || true)"
+if (( cancel_teardown < 2 )); then
+  echo "ScrollCaptureInteractionChecks: cancelling a scroll capture leaves guides or the preview rail on screen" >&2
   exit 1
 fi
-finish_teardown="$(/usr/bin/sed -n '/func finish()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Fc "feedbackOverlay.hide()" || true)"
-if (( finish_teardown < 1 )); then
-  echo "ScrollCaptureInteractionChecks: finishing a scroll capture leaves the external trail on screen" >&2
+finish_teardown="$(/usr/bin/sed -n '/func finish()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Ec "feedbackOverlay.hide\(\)|hidePreviewPanel\(\)" || true)"
+if (( finish_teardown < 2 )); then
+  echo "ScrollCaptureInteractionChecks: finishing a scroll capture leaves guides or the preview rail on screen" >&2
+  exit 1
+fi
+autoscroll_stops="$(/usr/bin/grep -Fc "stopAutoScroll(" "$CONTROLLER" || true)"
+if (( autoscroll_stops < 6 )); then
+  echo "ScrollCaptureInteractionChecks: auto scrolling keeps running after pause, undo, finish or cancel" >&2
   exit 1
 fi
 require_text "$CONTROLLER" "classificationFrames" "hover-preserving output is still reused as the automatic comparison baseline"
@@ -79,6 +89,7 @@ if (( release_call_count < 3 )); then
 fi
 require_text "$CONTROLS" "controller.canFinish" "Done remains disabled while a frame is captured"
 require_text "$CONTROLS" 'Button("Начать", action: controller.start)' "the control HUD has no explicit Start button"
+require_text "$CONTROLS" "controller.toggleAutoScroll" "the control HUD cannot start auto scrolling"
 require_text "$CONTROLS" 'Text("Esc - отмена")' "the control HUD does not explain how to cancel from the keyboard"
 require_text "$CONTROLS" '.environment(\.appearsActive, true)' "the first HUD presentation still inherits an unreadable inactive control state"
 require_text "$CONTROLS" 'Color(nsColor: .windowBackgroundColor)' "the command HUD still depends on a translucent backdrop for legibility"
