@@ -31,6 +31,16 @@ public enum ScrollStitchSeam: Equatable, Sendable {
 
 public enum ScrollStitcher {
     public static func stitch(_ frames: [CGImage]) throws -> CGImage {
+        try stitch(frames, direction: .down)
+    }
+
+    /// Восстанавливает перекрытия, когда подтверждённые seams потеряны.
+    /// Направление обязательно, иначе кадры, снятые вверх, склеиваются как «вниз»
+    /// и у полного первого кадра срезается верх.
+    public static func stitch(
+        _ frames: [CGImage],
+        direction: ScrollCaptureDirection
+    ) throws -> CGImage {
         guard let first = frames.first else { throw ScrollStitcherError.noFrames }
         guard frames.allSatisfy({ $0.width == first.width }) else {
             throw ScrollStitcherError.differentWidths
@@ -38,16 +48,22 @@ public enum ScrollStitcher {
         guard frames.count > 1 else { return first }
 
         let grayFrames = try frames.map(grayImage)
-        var overlaps: [Int] = []
+        var seams: [ScrollStitchSeam] = []
         for index in 1..<grayFrames.count {
-            overlaps.append(
-                try OverlapMatcher.bestVerticalOverlap(
-                    previous: grayFrames[index - 1],
-                    next: grayFrames[index]
-                )
+            let match = try OverlapMatcher.bestVerticalMatch(
+                previous: grayFrames[index - 1],
+                next: grayFrames[index]
             )
+            let limit = max(0, min(frames[index - 1].height, frames[index].height) - 1)
+            let matched = match.meanDifference <= 28
+            switch direction {
+            case .down:
+                seams.append(.append(overlap: matched ? min(match.overlap, limit) : 0))
+            case .up:
+                seams.append(.prepend(overlap: matched ? min(match.contentOverlap, limit) : 0))
+            }
         }
-        return try stitch(frames, overlaps: overlaps)
+        return try stitch(frames, seams: seams)
     }
 
     public static func stitch(_ frames: [CGImage], overlaps: [Int]) throws -> CGImage {

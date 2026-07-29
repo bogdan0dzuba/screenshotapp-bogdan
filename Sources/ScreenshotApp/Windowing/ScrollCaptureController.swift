@@ -56,7 +56,9 @@ final class ScrollCaptureController: ObservableObject {
         baselineTask?.cancel()
         baselineTask = nil
         captureTask?.cancel()
+        captureTask = nil
         stitchingTask?.cancel()
+        stitchingTask = nil
         self.rect = rect
         self.model = model
         self.preparedCapture = preparedCapture
@@ -241,11 +243,14 @@ final class ScrollCaptureController: ObservableObject {
 
         do {
             try await captureService.capture(preparedCapture, to: temporaryURL)
-            guard !Task.isCancelled,
-                  isCapturing,
-                  generation == captureGeneration,
-                  let image = NSImage(contentsOf: temporaryURL),
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
+            guard let image = NSImage(contentsOf: temporaryURL),
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                isProcessingFrame = false
+                feedbackState = .needsOverlap
+                message = "Не удалось прочитать первый кадр. Нажмите «Начать» ещё раз"
+                baselineTask = nil
+                feedbackOverlay.presentError(message: "Нажмите «Начать», чтобы повторить")
                 return
             }
             let targetWidth = targetPixelWidth
@@ -413,6 +418,9 @@ final class ScrollCaptureController: ObservableObject {
                 feedbackOverlay.present(state: feedbackState, frameCount: frameCount)
             }
         } catch {
+            // Отменённый или устаревший кадр не имеет права трогать HUD: иначе пауза,
+            // «Убрать кадр» и «Отмена» получают чужое оранжевое предупреждение.
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
             isPaused = true
             message = "Захват приостановлен: \(error.localizedDescription)"
             feedbackOverlay.presentError(message: "Нажмите «Продолжить», чтобы повторить")

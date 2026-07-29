@@ -37,6 +37,9 @@ public struct ScrollCaptureTrail: Equatable, Sendable {
         increments.removeAll()
     }
 
+    /// `captureRect` и `screenRect` задаются в координатах AppKit (начало снизу слева),
+    /// потому что след рисуется в неперевёрнутом `ScrollCaptureCoverageView`.
+    /// Прокрутка вниз наращивает след под нижней границей рамки, прокрутка вверх - над верхней.
     public func externalRect(
         captureRect: CGRect,
         screenRect: CGRect,
@@ -47,14 +50,14 @@ public struct ScrollCaptureTrail: Equatable, Sendable {
         case .down:
             rect = CGRect(
                 x: captureRect.minX,
-                y: captureRect.maxY,
+                y: captureRect.minY - appendHeight,
                 width: captureRect.width,
                 height: appendHeight
             )
         case .up:
             rect = CGRect(
                 x: captureRect.minX,
-                y: captureRect.minY - prependHeight,
+                y: captureRect.maxY,
                 width: captureRect.width,
                 height: prependHeight
             )

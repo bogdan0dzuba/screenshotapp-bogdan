@@ -40,9 +40,16 @@ public enum ScrollFrameClassifier {
         }
         let appendMatch = try OverlapMatcher.bestVerticalMatch(previous: previous, next: next)
         let prependMatch = try OverlapMatcher.bestVerticalMatch(previous: next, next: previous)
+        // При склейке вниз обрезается верх нижнего кадра, поэтому убирается и закреплённая
+        // полоса. При склейке вверх нижний кадр остаётся целым, поэтому снизу верхнего кадра
+        // убирается только реально повторяющееся содержимое.
         let candidates: [(decision: ScrollFrameDecision, match: VerticalOverlapMatch, newRows: Int)] = [
             (.append(overlap: appendMatch.overlap), appendMatch, next.height - appendMatch.overlap),
-            (.prepend(overlap: prependMatch.overlap), prependMatch, next.height - prependMatch.overlap),
+            (
+                .prepend(overlap: prependMatch.contentOverlap),
+                prependMatch,
+                next.height - prependMatch.overlap
+            ),
         ]
         let stitchable = candidates.filter {
             $0.match.meanDifference <= policy.maximumMeanDifference

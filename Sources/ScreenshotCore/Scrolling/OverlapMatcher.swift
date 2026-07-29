@@ -25,19 +25,28 @@ public enum OverlapMatcherError: LocalizedError {
 }
 
 public struct VerticalOverlapMatch: Equatable, Sendable {
+    /// Совпадающие строки целиком: закреплённая верхняя полоса плюс совпавшее содержимое.
     public var overlap: Int
     public var meanDifference: Double
+    /// Часть `overlap`, которую занимает закреплённая верхняя полоса обоих кадров.
+    public var fixedTopRows: Int
 
-    public init(overlap: Int, meanDifference: Double) {
+    /// Строки, которые действительно повторяют содержимое соседнего кадра.
+    /// Именно их нужно убирать снизу верхнего кадра при склейке вверх.
+    public var contentOverlap: Int { max(0, overlap - fixedTopRows) }
+
+    public init(overlap: Int, meanDifference: Double, fixedTopRows: Int = 0) {
         self.overlap = overlap
         self.meanDifference = meanDifference
+        self.fixedTopRows = fixedTopRows
     }
 }
 
 public enum OverlapMatcher {
     public static func bestVerticalOverlap(previous: GrayImage, next: GrayImage) throws -> Int {
         let match = try bestVerticalMatch(previous: previous, next: next)
-        return match.meanDifference <= 28 ? match.overlap : 0
+        guard match.meanDifference <= 28 else { return 0 }
+        return min(match.overlap, max(0, min(previous.height, next.height) - 1))
     }
 
     public static func bestVerticalMatch(previous: GrayImage, next: GrayImage) throws -> VerticalOverlapMatch {
@@ -56,7 +65,10 @@ public enum OverlapMatcher {
         let commonHeight = min(previous.height, next.height)
         let fixedTopRows = matchingTopBandRows(previous: previous, next: next)
         let contentHeight = commonHeight - fixedTopRows
-        let maximum = contentHeight - 1
+        // Верхняя граница включает contentHeight, иначе неподвижный viewport
+        // невозможно распознать и слегка изменившийся кадр без прокрутки
+        // ошибочно объявляется потерей перекрытия.
+        let maximum = contentHeight
         guard maximum > 0 else {
             return VerticalOverlapMatch(overlap: 0, meanDifference: .infinity)
         }
@@ -103,7 +115,11 @@ public enum OverlapMatcher {
             }
         }
 
-        return VerticalOverlapMatch(overlap: bestOverlap, meanDifference: bestScore)
+        return VerticalOverlapMatch(
+            overlap: bestOverlap,
+            meanDifference: bestScore,
+            fixedTopRows: bestOverlap > 0 ? fixedTopRows : 0
+        )
     }
 
     private static func matchingTopBandRows(previous: GrayImage, next: GrayImage) -> Int {

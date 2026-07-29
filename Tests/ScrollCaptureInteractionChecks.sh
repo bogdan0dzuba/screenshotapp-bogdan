@@ -42,6 +42,19 @@ require_text "$CONTROLLER" "outsideShadePanels" "screen outside the selected scr
 require_text "$CONTROLLER" "ScrollCaptureCoverageView" "captured and pending portions have no persistent visual mask"
 require_text "$CONTROLLER" "ScrollCaptureTrail" "accepted content has no persistent external trail model"
 require_text "$CONTROLLER" "trailOverlay" "accepted content has no screen-sized external trail overlay"
+require_text "$CONTROLLER" "panel.ignoresMouseEvents = true" "the external trail overlay can still swallow clicks over the scrolled page"
+require_text "$CONTROLLER" "panel.sharingType = .none" "the external trail overlay is not excluded from screen sharing"
+require_text "$CONTROLLER" "trail.undoLast()" "removing a frame does not shrink the accumulated external trail"
+cancel_teardown="$(/usr/bin/sed -n '/func cancel()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Fc "feedbackOverlay.hide()" || true)"
+if (( cancel_teardown < 1 )); then
+  echo "ScrollCaptureInteractionChecks: cancelling a scroll capture leaves the external trail on screen" >&2
+  exit 1
+fi
+finish_teardown="$(/usr/bin/sed -n '/func finish()/,/^    }/p' "$CONTROLLER" | /usr/bin/grep -Fc "feedbackOverlay.hide()" || true)"
+if (( finish_teardown < 1 )); then
+  echo "ScrollCaptureInteractionChecks: finishing a scroll capture leaves the external trail on screen" >&2
+  exit 1
+fi
 require_text "$CONTROLLER" "classificationFrames" "hover-preserving output is still reused as the automatic comparison baseline"
 require_text "$CONTROLLER" "Подготавливаю стабильный первый кадр" "Start does not prepare a stable filtered baseline before asking the user to scroll"
 require_text "$CONTROLLER" "overlap: overlap" "classifier-approved seams are discarded before final stitching"

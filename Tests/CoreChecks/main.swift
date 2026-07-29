@@ -373,6 +373,25 @@ private func checkAutomaticScrollFrameSelection() throws {
         unrelatedDecision == .insufficientOverlap,
         "automatic scroll capture rejects a frame that cannot be stitched"
     )
+
+    // Кадр без прокрутки, но с небольшим изменением (курсор, подсветка строки)
+    // обязан оставаться unchanged, а не превращаться в «Слишком быстро».
+    let steadyPixels: [UInt8] = [
+        10, 10, 10, 200, 200, 200, 30, 30, 30, 220, 220, 220, 50, 50, 50, 240, 240, 240,
+    ]
+    let steady = GrayImage(width: 3, height: 6, pixels: steadyPixels)
+    var restlessPixels = steadyPixels
+    restlessPixels[6] = 90
+    let restless = GrayImage(width: 3, height: 6, pixels: restlessPixels)
+    let restlessDecision = try ScrollFrameClassifier.decision(
+        previous: steady,
+        next: restless,
+        policy: policy
+    )
+    try expect(
+        restlessDecision == .unchanged,
+        "a viewport that changed slightly without scrolling stays unchanged instead of losing its overlap"
+    )
 }
 
 private func checkScrollFrameSettling() throws {
@@ -726,12 +745,46 @@ private func checkScrollCaptureTrail() throws {
     try expect(trail.appendHeight == 200, "append trail uses the new-content ratio")
     trail.prepend(frameHeight: 1_000, overlap: 800, captureHeight: 500)
     try expect(trail.prependHeight == 100, "prepend trail uses the new-content ratio")
-    let clipped = trail.externalRect(
-        captureRect: CGRect(x: 100, y: 100, width: 300, height: 500),
-        screenRect: CGRect(x: 0, y: 0, width: 800, height: 700),
+
+    // Рамка в координатах AppKit занимает y 100...600, экран - y 0...700.
+    let captureRect = CGRect(x: 100, y: 100, width: 300, height: 500)
+    let screenRect = CGRect(x: 0, y: 0, width: 800, height: 700)
+    let downRect = trail.externalRect(
+        captureRect: captureRect,
+        screenRect: screenRect,
         direction: .down
     )
-    try expect(clipped == CGRect(x: 100, y: 600, width: 300, height: 100), "trail clips to its screen")
+    try expect(
+        downRect.maxY <= captureRect.minY,
+        "downward scrolling grows the trail below the selected rectangle"
+    )
+    try expect(
+        downRect == CGRect(x: 100, y: 0, width: 300, height: 100),
+        "the downward trail clips to its screen instead of drawing off-display"
+    )
+    let upRect = trail.externalRect(
+        captureRect: captureRect,
+        screenRect: screenRect,
+        direction: .up
+    )
+    try expect(
+        upRect.minY >= captureRect.maxY,
+        "upward scrolling grows the trail above the selected rectangle"
+    )
+    try expect(
+        upRect == CGRect(x: 100, y: 600, width: 300, height: 100),
+        "the upward trail keeps the full accepted height when the screen allows it"
+    )
+    let clippedUp = trail.externalRect(
+        captureRect: captureRect,
+        screenRect: CGRect(x: 0, y: 0, width: 800, height: 650),
+        direction: .up
+    )
+    try expect(
+        clippedUp == CGRect(x: 100, y: 600, width: 300, height: 50),
+        "the upward trail clips to its screen"
+    )
+
     trail.undoLast()
     try expect(trail.prependHeight == 0 && trail.appendHeight == 200, "undo removes the last trail increment")
     trail.reset()
@@ -743,7 +796,7 @@ private func checkScrollCaptureCoverageRendering() throws {
     let view = ScrollCaptureCoverageView(frame: bounds)
     view.appearance = NSAppearance(named: .aqua)
 
-    func renderedBitmap() throws -> NSBitmapImageRep {
+    func renderedBitmap(_ target: ScrollCaptureCoverageView = view) throws -> NSBitmapImageRep {
         let bitmap = try requireValue(
             NSBitmapImageRep(
                 bitmapDataPlanes: nil,
@@ -767,7 +820,7 @@ private func checkScrollCaptureCoverageRendering() throws {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = context
-        view.displayIgnoringOpacity(view.bounds, in: context)
+        target.displayIgnoringOpacity(target.bounds, in: context)
         context.flushGraphics()
         return bitmap
     }
@@ -825,20 +878,56 @@ private func checkScrollCaptureCoverageRendering() throws {
             + "(low alpha: \(pendingUpLowAlpha), high alpha: \(pendingUpHighAlpha))"
     )
 
-    var externalTrail = ScrollCaptureTrail()
-    externalTrail.append(frameHeight: 1_000, overlap: 500, captureHeight: 300)
-    view.configure(
-        captureRect: CGRect(x: 50, y: 300, width: 200, height: 300),
-        screenRect: bounds,
-        trail: externalTrail
-    )
+    // Рамка занимает y 300...600 в координатах AppKit; след вниз должен лечь на y 150...300.
+    let selectionRect = CGRect(x: 50, y: 300, width: 200, height: 300)
+    var downTrail = ScrollCaptureTrail()
+    downTrail.append(frameHeight: 1_000, overlap: 500, captureHeight: 300)
+    view.configure(captureRect: selectionRect, screenRect: bounds, trail: downTrail)
     view.presentCapturedViewport()
-    let externalTrailBitmap = try renderedBitmap()
+    let downTrailBitmap = try renderedBitmap()
     try expect(
-        alpha(externalTrailBitmap, x: 150, y: 650) > 0.15
-            && alpha(externalTrailBitmap, x: 150, y: 800) < 0.01
-            && alpha(externalTrailBitmap, x: 20, y: 650) < 0.01,
-        "the real AppKit view renders the accepted trail outside the selected rectangle only"
+        alpha(downTrailBitmap, x: 150, y: 200) > 0.15
+            && alpha(downTrailBitmap, x: 150, y: 50) < 0.01
+            && alpha(downTrailBitmap, x: 150, y: 800) < 0.01
+            && alpha(downTrailBitmap, x: 20, y: 200) < 0.01,
+        "downward scrolling renders the accepted trail below the selected rectangle only"
+    )
+
+    view.presentNeedsOverlap()
+    let warningTrailBitmap = try renderedBitmap()
+    try expect(
+        alpha(warningTrailBitmap, x: 150, y: 200) > 0.15
+            && alpha(warningTrailBitmap, x: 150, y: 450) < 0.01,
+        "the overlap warning keeps the external trail while releasing the in-frame mark"
+    )
+
+    var upTrail = ScrollCaptureTrail()
+    upTrail.prepend(frameHeight: 1_000, overlap: 500, captureHeight: 300)
+    view.configure(captureRect: selectionRect, screenRect: bounds, trail: upTrail)
+    view.presentCapturedViewport()
+    let upTrailBitmap = try renderedBitmap()
+    try expect(
+        alpha(upTrailBitmap, x: 150, y: 700) > 0.15
+            && alpha(upTrailBitmap, x: 150, y: 200) < 0.01
+            && alpha(upTrailBitmap, x: 150, y: 800) < 0.01,
+        "upward scrolling renders the accepted trail above the selected rectangle only"
+    )
+
+    // Тот же след на дисплее со смещённым началом координат должен попасть в те же пиксели вида.
+    let offsetScreen = CGRect(x: 100, y: 200, width: 300, height: 900)
+    let offsetView = ScrollCaptureCoverageView(frame: CGRect(origin: .zero, size: offsetScreen.size))
+    offsetView.appearance = NSAppearance(named: .aqua)
+    offsetView.configure(
+        captureRect: selectionRect.offsetBy(dx: offsetScreen.minX, dy: offsetScreen.minY),
+        screenRect: offsetScreen,
+        trail: downTrail
+    )
+    offsetView.presentCapturedViewport()
+    let offsetBitmap = try renderedBitmap(offsetView)
+    try expect(
+        alpha(offsetBitmap, x: 150, y: 200) > 0.15
+            && alpha(offsetBitmap, x: 150, y: 800) < 0.01,
+        "a secondary display origin is subtracted before the trail is drawn"
     )
 }
 
@@ -1288,6 +1377,57 @@ private func checkScrollStitching() throws {
             220, 220, 210, 210, 200, 200, 190, 190, 180, 180, 170, 170,
         ],
         "an upward first seam prepends only new filtered rows and keeps the full hover frame"
+    )
+
+    // Прокрутка вверх на странице с закреплённой верхней полосой.
+    // Нижний кадр остаётся целым, поэтому снизу верхнего кадра снимаются
+    // только реально повторяющиеся строки, а не полоса вместе с ними.
+    let stickyUpper = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [240, 240, 90, 90, 100, 100, 110, 110, 120, 120, 130, 130]
+    )
+    let stickyLower = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [240, 240, 120, 120, 130, 130, 140, 140, 150, 150, 160, 160]
+    )
+    let stickyUpDecision = try ScrollFrameClassifier.decision(
+        previous: try ScrollStitcher.grayImage(from: stickyLower),
+        next: try ScrollStitcher.grayImage(from: stickyUpper),
+        policy: ScrollFramePolicy(
+            minimumNewRows: 2,
+            minimumOverlapRows: 2,
+            maximumMeanDifference: 20
+        )
+    )
+    try expect(
+        stickyUpDecision == .prepend(overlap: 2),
+        "an upward seam under a fixed top bar reports only the repeated content rows"
+    )
+    guard case let .prepend(stickyUpOverlap) = stickyUpDecision else {
+        throw CheckFailure.failed("upward sticky decision")
+    }
+    let stickyUpOutput = try ScrollStitcher.stitch(
+        [stickyUpper, stickyLower],
+        seams: [.prepend(overlap: stickyUpOverlap)]
+    )
+    let stickyUpPixels = try ScrollStitcher.grayImage(from: stickyUpOutput).pixels
+    try expect(
+        stickyUpPixels == [
+            240, 240, 90, 90, 100, 100, 110, 110,
+            240, 240, 120, 120, 130, 130, 140, 140, 150, 150, 160, 160,
+        ],
+        "an upward seam under a fixed top bar keeps every new row instead of dropping the band height"
+    )
+
+    // Без подтверждённых seams сессия обязана восстановить своё направление,
+    // иначе у полного первого кадра срезается верх.
+    let recoveredUpOutput = try ScrollStitcher.stitch([stickyUpper, stickyLower], direction: .up)
+    let recoveredUpPixels = try ScrollStitcher.grayImage(from: recoveredUpOutput).pixels
+    try expect(
+        recoveredUpPixels == stickyUpPixels,
+        "a recovered upward stitch matches the classifier-approved upward seam"
     )
 }
 
