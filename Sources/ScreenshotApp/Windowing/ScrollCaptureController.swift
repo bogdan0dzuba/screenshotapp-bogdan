@@ -33,6 +33,7 @@ final class ScrollCaptureController: ObservableObject {
     private var trail = ScrollCaptureTrail()
     private weak var model: AppModel?
     private var panel: NSPanel?
+    private var baselineTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
     private var stitchingTask: Task<Void, Never>?
     private let feedbackOverlay = ScrollCaptureFeedbackOverlay()
@@ -44,6 +45,7 @@ final class ScrollCaptureController: ObservableObject {
     private var preparedCapture: PreparedScrollCapture?
     private var captureInFlight = false
     private var captureGeneration = 0
+    private var classificationFrames: [CGImage] = []
 
     func begin(
         rect: CGRect,
@@ -51,6 +53,8 @@ final class ScrollCaptureController: ObservableObject {
         preparedCapture: PreparedScrollCapture,
         model: AppModel
     ) {
+        baselineTask?.cancel()
+        baselineTask = nil
         captureTask?.cancel()
         stitchingTask?.cancel()
         self.rect = rect
@@ -60,6 +64,7 @@ final class ScrollCaptureController: ObservableObject {
         targetPixelHeight = firstFrame.height
         selectedFirstFrame = firstFrame
         session = ScrollCaptureSession(frames: [])
+        classificationFrames.removeAll()
         frameSettler.reset()
         trail.reset()
         captureGeneration &+= 1
@@ -78,17 +83,26 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     func start() {
-        guard canStart, let firstFrame = selectedFirstFrame else { return }
-        selectedFirstFrame = nil
-        hasStarted = true
-        session = ScrollCaptureSession(frames: [firstFrame])
-        frameSettler.reset()
-        frameCount = 1
-        feedbackState = .ready
-        message = "Первый кадр сохранён ✓ Прокрутите на 1/3 и остановитесь на 0,5 с"
-        presentLatestCapturedViewport()
-        feedbackOverlay.present(state: .ready, frameCount: frameCount)
-        startCaptureLoopIfNeeded()
+        guard canStart,
+              let firstFrame = selectedFirstFrame,
+              let preparedCapture,
+              let model else {
+            return
+        }
+        isProcessingFrame = true
+        feedbackState = .aligning
+        message = "Подготавливаю стабильный первый кадр…"
+        feedbackOverlay.present(state: .aligning, frameCount: frameCount)
+        let generation = captureGeneration
+        let captureService = model.captureService
+        baselineTask = Task { [weak self] in
+            await self?.prepareStableBaseline(
+                firstFrame: firstFrame,
+                preparedCapture: preparedCapture,
+                captureService: captureService,
+                generation: generation
+            )
+        }
     }
 
     func togglePause() {
@@ -111,7 +125,11 @@ final class ScrollCaptureController: ObservableObject {
         guard !isFinalizing else { return }
         captureGeneration &+= 1
         isPaused = true
+        let previousFrameCount = session.frames.count
         session.undoLastFrame()
+        if session.frames.count < previousFrameCount, classificationFrames.count > 1 {
+            classificationFrames.removeLast()
+        }
         trail.undoLast()
         frameSettler.reset()
         frameCount = session.frames.count
@@ -130,6 +148,8 @@ final class ScrollCaptureController: ObservableObject {
             return
         }
         isFinalizing = true
+        baselineTask?.cancel()
+        baselineTask = nil
         captureTask?.cancel()
         captureTask = nil
         isCapturing = false
@@ -138,11 +158,16 @@ final class ScrollCaptureController: ObservableObject {
         message = "Склеиваю \(frameCount) кадров…"
         feedbackOverlay.presentFinalizing(frameCount: frameCount)
         let frames = session.frames
+        let stitchSeams = session.stitchSeams.compactMap { $0 }
+        let hasRecordedSeams = stitchSeams.count == max(0, frames.count - 1)
 
         stitchingTask = Task { [weak self, weak model] in
             do {
                 let image = try await Task.detached(priority: .userInitiated) {
-                    try ScrollStitcher.stitch(frames)
+                    if hasRecordedSeams {
+                        return try ScrollStitcher.stitch(frames, seams: stitchSeams)
+                    }
+                    return try ScrollStitcher.stitch(frames)
                 }.value
                 guard !Task.isCancelled, let self, let model else { return }
                 isProcessingFrame = false
@@ -170,6 +195,8 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     func cancel() {
+        baselineTask?.cancel()
+        baselineTask = nil
         captureTask?.cancel()
         captureTask = nil
         stitchingTask?.cancel()
@@ -194,9 +221,65 @@ final class ScrollCaptureController: ObservableObject {
 
     private func releaseCapturedFrames() {
         session = ScrollCaptureSession(frames: [])
+        classificationFrames.removeAll()
         selectedFirstFrame = nil
         targetPixelWidth = 0
         targetPixelHeight = 0
+    }
+
+    private func prepareStableBaseline(
+        firstFrame: CGImage,
+        preparedCapture: PreparedScrollCapture,
+        captureService: CaptureService,
+        generation: Int
+    ) async {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotScrollBaseline-\(UUID().uuidString).png")
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+        }
+
+        do {
+            try await captureService.capture(preparedCapture, to: temporaryURL)
+            guard !Task.isCancelled,
+                  isCapturing,
+                  generation == captureGeneration,
+                  let image = NSImage(contentsOf: temporaryURL),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                return
+            }
+            let targetWidth = targetPixelWidth
+            let targetHeight = targetPixelHeight
+            let normalizedImage = try await Task.detached(priority: .userInitiated) {
+                try ScrollFrameNormalizer.normalized(
+                    cgImage,
+                    width: targetWidth,
+                    height: targetHeight
+                )
+            }.value
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
+
+            selectedFirstFrame = nil
+            session = ScrollCaptureSession(frames: [firstFrame])
+            classificationFrames = [normalizedImage]
+            frameSettler.reset()
+            frameCount = 1
+            hasStarted = true
+            isProcessingFrame = false
+            feedbackState = .ready
+            message = "Первый кадр сохранён ✓ Прокрутите на 1/3 и остановитесь на 0,5 с"
+            baselineTask = nil
+            presentLatestCapturedViewport()
+            feedbackOverlay.present(state: .ready, frameCount: frameCount)
+            startCaptureLoopIfNeeded()
+        } catch {
+            guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
+            isProcessingFrame = false
+            feedbackState = .needsOverlap
+            message = "Не удалось подготовить область: \(error.localizedDescription)"
+            baselineTask = nil
+            feedbackOverlay.presentError(message: "Нажмите «Начать», чтобы повторить")
+        }
     }
 
     private func startCaptureLoopIfNeeded() {
@@ -244,7 +327,7 @@ final class ScrollCaptureController: ObservableObject {
             guard !Task.isCancelled, isCapturing, generation == captureGeneration,
                   let image = NSImage(contentsOf: temporaryURL),
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-                  let previous = session.latestFrame else {
+                  let previous = classificationFrames.last else {
                 return
             }
             let targetWidth = targetPixelWidth
@@ -301,7 +384,7 @@ final class ScrollCaptureController: ObservableObject {
                 }
                 switch decision {
                 case let .append(overlap):
-                    session.add(normalizedImage, direction: .down)
+                    session.add(normalizedImage, direction: .down, overlap: overlap)
                     trail.append(
                         frameHeight: normalizedImage.height,
                         overlap: overlap,
@@ -309,7 +392,7 @@ final class ScrollCaptureController: ObservableObject {
                     )
                     lockedDirection = .down
                 case let .prepend(overlap):
-                    session.add(normalizedImage, direction: .up)
+                    session.add(normalizedImage, direction: .up, overlap: overlap)
                     trail.prepend(
                         frameHeight: normalizedImage.height,
                         overlap: overlap,
@@ -319,6 +402,7 @@ final class ScrollCaptureController: ObservableObject {
                 case .unchanged, .insufficientOverlap:
                     return
                 }
+                classificationFrames.append(normalizedImage)
                 frameCount = session.frames.count
                 presentLatestCapturedViewport()
                 message = "Кадр \(frameCount) сохранён ✓ Можно прокручивать дальше"
@@ -344,7 +428,7 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     private func presentLatestCapturedViewport() {
-        guard session.latestFrame != nil else {
+        guard !session.frames.isEmpty else {
             feedbackOverlay.presentSelectionReady()
             return
         }
@@ -352,7 +436,7 @@ final class ScrollCaptureController: ObservableObject {
     }
 
     private func presentOverlapRecoveryTarget() {
-        guard session.latestFrame != nil else {
+        guard !session.frames.isEmpty else {
             feedbackOverlay.presentSelectionReady()
             return
         }

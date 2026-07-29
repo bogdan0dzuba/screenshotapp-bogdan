@@ -4,13 +4,27 @@ import Foundation
 public enum ScrollStitcherError: LocalizedError {
     case noFrames
     case differentWidths
+    case invalidOverlaps
     case contextCreationFailed
 
     public var errorDescription: String? {
         switch self {
         case .noFrames: "Нет кадров для склейки"
         case .differentWidths: "Кадры прокрутки имеют разную ширину"
+        case .invalidOverlaps: "Не удалось подтвердить границы кадров"
         case .contextCreationFailed: "Не удалось подготовить изображение"
+        }
+    }
+}
+
+public enum ScrollStitchSeam: Equatable, Sendable {
+    case append(overlap: Int)
+    case prepend(overlap: Int)
+
+    public var overlap: Int {
+        switch self {
+        case let .append(overlap), let .prepend(overlap):
+            overlap
         }
     }
 }
@@ -33,10 +47,68 @@ public enum ScrollStitcher {
                 )
             )
         }
+        return try stitch(frames, overlaps: overlaps)
+    }
 
-        let totalHeight = first.height + zip(frames.dropFirst(), overlaps).reduce(0) { partial, pair in
-            partial + pair.0.height - pair.1
+    public static func stitch(_ frames: [CGImage], overlaps: [Int]) throws -> CGImage {
+        try stitch(frames, seams: overlaps.map { .append(overlap: $0) })
+    }
+
+    public static func stitch(_ frames: [CGImage], seams: [ScrollStitchSeam]) throws -> CGImage {
+        guard let first = frames.first else { throw ScrollStitcherError.noFrames }
+        guard frames.allSatisfy({ $0.width == first.width }) else {
+            throw ScrollStitcherError.differentWidths
         }
+        guard seams.count == max(0, frames.count - 1) else {
+            throw ScrollStitcherError.invalidOverlaps
+        }
+        for (index, seam) in seams.enumerated() {
+            let maximumOverlap = min(frames[index].height, frames[index + 1].height)
+            guard seam.overlap >= 0, seam.overlap < maximumOverlap else {
+                throw ScrollStitcherError.invalidOverlaps
+            }
+        }
+        guard frames.count > 1 else { return first }
+
+        let isAppend = seams.allSatisfy {
+            if case .append = $0 { return true }
+            return false
+        }
+        let isPrepend = seams.allSatisfy {
+            if case .prepend = $0 { return true }
+            return false
+        }
+        guard isAppend || isPrepend else {
+            throw ScrollStitcherError.invalidOverlaps
+        }
+
+        let slices: [CGImage] = try frames.enumerated().map { index, frame in
+            let cropRect: CGRect
+            if isAppend, index > 0 {
+                let overlap = seams[index - 1].overlap
+                cropRect = CGRect(
+                    x: 0,
+                    y: overlap,
+                    width: frame.width,
+                    height: frame.height - overlap
+                )
+            } else if isPrepend, index < seams.count {
+                let overlap = seams[index].overlap
+                cropRect = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: frame.width,
+                    height: frame.height - overlap
+                )
+            } else {
+                return frame
+            }
+            guard let slice = frame.cropping(to: cropRect) else {
+                throw ScrollStitcherError.contextCreationFailed
+            }
+            return slice
+        }
+        let totalHeight = slices.reduce(0) { $0 + $1.height }
         guard let context = CGContext(
             data: nil,
             width: first.width,
@@ -49,17 +121,10 @@ public enum ScrollStitcher {
             throw ScrollStitcherError.contextCreationFailed
         }
 
-        var y = totalHeight - first.height
-        context.draw(first, in: CGRect(x: 0, y: y, width: first.width, height: first.height))
-        for (index, frame) in frames.dropFirst().enumerated() {
-            let newRowCount = frame.height - overlaps[index]
-            guard let newRows = frame.cropping(
-                to: CGRect(x: 0, y: overlaps[index], width: frame.width, height: newRowCount)
-            ) else {
-                throw ScrollStitcherError.contextCreationFailed
-            }
-            y -= newRowCount
-            context.draw(newRows, in: CGRect(x: 0, y: y, width: frame.width, height: newRowCount))
+        var y = totalHeight
+        for slice in slices {
+            y -= slice.height
+            context.draw(slice, in: CGRect(x: 0, y: y, width: slice.width, height: slice.height))
         }
 
         guard let image = context.makeImage() else {

@@ -824,6 +824,22 @@ private func checkScrollCaptureCoverageRendering() throws {
         "during upward scrolling, the real AppKit view marks old content and leaves new content clear "
             + "(low alpha: \(pendingUpLowAlpha), high alpha: \(pendingUpHighAlpha))"
     )
+
+    var externalTrail = ScrollCaptureTrail()
+    externalTrail.append(frameHeight: 1_000, overlap: 500, captureHeight: 300)
+    view.configure(
+        captureRect: CGRect(x: 50, y: 300, width: 200, height: 300),
+        screenRect: bounds,
+        trail: externalTrail
+    )
+    view.presentCapturedViewport()
+    let externalTrailBitmap = try renderedBitmap()
+    try expect(
+        alpha(externalTrailBitmap, x: 150, y: 650) > 0.15
+            && alpha(externalTrailBitmap, x: 150, y: 800) < 0.01
+            && alpha(externalTrailBitmap, x: 20, y: 650) < 0.01,
+        "the real AppKit view renders the accepted trail outside the selected rectangle only"
+    )
 }
 
 private func checkCaptureCompletionPolicy() throws {
@@ -1210,6 +1226,69 @@ private func checkScrollStitching() throws {
         ],
         "a fixed top bar is not repeated inside the stitched page"
     )
+
+    let hoverPreservedFirst = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [220, 220, 210, 210, 200, 200, 190, 190, 180, 180, 170, 170]
+    )
+    let filteredBaseline = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [0, 0, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50]
+    )
+    let filteredAfterScroll = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [30, 30, 40, 40, 50, 50, 60, 60, 70, 70, 80, 80]
+    )
+    let filteredDecision = try ScrollFrameClassifier.decision(
+        previous: try ScrollStitcher.grayImage(from: filteredBaseline),
+        next: try ScrollStitcher.grayImage(from: filteredAfterScroll),
+        policy: ScrollFramePolicy(
+            minimumNewRows: 2,
+            minimumOverlapRows: 2,
+            maximumMeanDifference: 20
+        )
+    )
+    try expect(
+        filteredDecision == .append(overlap: 3),
+        "classification uses the stable filtered baseline instead of the hover-preserved output"
+    )
+    let hoverPreservedOutput = try ScrollStitcher.stitch(
+        [hoverPreservedFirst, filteredAfterScroll],
+        overlaps: [3]
+    )
+    try expect(
+        hoverPreservedOutput.height == 9,
+        "the first seam reuses the filtered baseline overlap while preserving the hover frame"
+    )
+    let hoverPreservedPixels = try ScrollStitcher.grayImage(from: hoverPreservedOutput).pixels
+    try expect(
+        hoverPreservedPixels == [
+            220, 220, 210, 210, 200, 200, 190, 190, 180, 180, 170, 170,
+            60, 60, 70, 70, 80, 80,
+        ],
+        "the output keeps the exact selected first frame and appends only newly revealed rows"
+    )
+
+    let filteredAboveScroll = try makeGrayImage(
+        width: 2,
+        height: 6,
+        pixels: [30, 30, 40, 40, 50, 50, 60, 60, 70, 70, 80, 80]
+    )
+    let hoverPreservedUpOutput = try ScrollStitcher.stitch(
+        [filteredAboveScroll, hoverPreservedFirst],
+        seams: [.prepend(overlap: 3)]
+    )
+    let hoverPreservedUpPixels = try ScrollStitcher.grayImage(from: hoverPreservedUpOutput).pixels
+    try expect(
+        hoverPreservedUpPixels == [
+            30, 30, 40, 40, 50, 50,
+            220, 220, 210, 210, 200, 200, 190, 190, 180, 180, 170, 170,
+        ],
+        "an upward first seam prepends only new filtered rows and keeps the full hover frame"
+    )
 }
 
 private func checkScrollFrameNormalization() throws {
@@ -1291,6 +1370,43 @@ private func checkScrollSession() throws {
     try expect(session.latestFrame === below, "undo restores the previous observed frame")
     let output = try session.finish()
     try expect(output.height == 6, "scroll session finishes stitched image")
+
+    let hoverFirst = try makeGrayImage(
+        width: 2,
+        height: 4,
+        pixels: [220, 220, 210, 210, 200, 200, 190, 190]
+    )
+    var hoverSession = ScrollCaptureSession(frames: [hoverFirst])
+    hoverSession.add(below, direction: .down, overlap: 2)
+    try expect(
+        hoverSession.frames.first === hoverFirst,
+        "scroll session keeps the hover-preserved first output frame"
+    )
+    try expect(
+        hoverSession.seamOverlaps == [2],
+        "scroll session records the classifier-approved seam"
+    )
+    let hoverOutput = try hoverSession.finish()
+    try expect(
+        hoverOutput.height == 6,
+        "scroll session finishes with its recorded filtered-baseline seam"
+    )
+
+    var hoverUpSession = ScrollCaptureSession(frames: [hoverFirst])
+    hoverUpSession.add(above, direction: .up, overlap: 2)
+    try expect(
+        hoverUpSession.stitchSeams == [.prepend(overlap: 2)],
+        "upward capture records a prepend seam instead of a normal ordered overlap"
+    )
+    let hoverUpOutput = try hoverUpSession.finish()
+    let hoverUpPixels = try ScrollStitcher.grayImage(from: hoverUpOutput).pixels
+    try expect(
+        hoverUpPixels == [
+            0, 0, 10, 10,
+            220, 220, 210, 210, 200, 200, 190, 190,
+        ],
+        "upward session prepends only unseen rows before the full hover-preserved frame"
+    )
 }
 
 private func checkScrollCaptureFinishPolicy() throws {
