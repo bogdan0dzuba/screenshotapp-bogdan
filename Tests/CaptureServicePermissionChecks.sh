@@ -11,6 +11,7 @@ swiftc -swift-version 5 -parse-as-library \
   "$BIN_DIR"/ScreenshotCore.build/*.o \
   Sources/ScreenshotApp/Services/CaptureService.swift \
   Sources/ScreenshotApp/Services/CaptureTelemetry.swift \
+  Sources/ScreenshotApp/Services/SelectedContentFrameCapture.swift \
   Tests/CaptureServicePermission/main.swift \
   -o "$TEST_DIR/PermissionChecks"
 "$TEST_DIR/PermissionChecks"

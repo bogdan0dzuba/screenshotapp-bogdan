@@ -100,7 +100,7 @@ reject_text "$CONTROLLER" "CAKeyframeAnimation" "feedback still flashes on every
 require_text "$CAPTURE_SERVICE" "struct PreparedScrollCapture" "scroll capture has no reusable filtered source"
 require_text "$CAPTURE_SERVICE" "excludingApplications: excludedApplications" "ScreenshotApp overlays are not excluded from automatic frames"
 require_text "$CAPTURE_SERVICE" "SCScreenshotManager.captureImage(" "automatic frames do not use ScreenCaptureKit"
-require_text "$CAPTURE_SERVICE" "contentFilter: prepared.contentFilter" "automatic frames still use an unfiltered screen rectangle"
+require_text "$CAPTURE_SERVICE" "prepared.contentFilter, prepared.configuration" "automatic frames still use an unfiltered screen rectangle"
 require_text "$REGION_SELECTION" 'panel.title = "Выбор области снимка"' "selection window has no accessible identity for physical UI testing"
 
 echo "ScrollCaptureInteractionChecks: OK"

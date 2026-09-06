@@ -612,7 +612,8 @@ final class ScrollCaptureController: ObservableObject {
             panel.hidesOnDeactivate = false
             // Служебные панели остаются доступны записи экрана: иначе снятый объём
             // невозможно ни показать, ни проверить скринкастом. В итоговый PNG они
-            // всё равно не попадают - SCContentFilter исключает приложение целиком.
+            // все равно не попадают: общий фильтр исключает приложение целиком,
+            // а системный выбор дает доступ только к выбранному внешнему окну.
             panel.sharingType = .readOnly
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             panel.contentView = NSHostingView(rootView: ScrollCaptureControlsView(controller: self))

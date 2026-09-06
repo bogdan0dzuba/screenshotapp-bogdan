@@ -11,7 +11,7 @@ struct RegionSelection {
 final class RegionSelectionController {
     private var panel: NSPanel?
     private var continuation: CheckedContinuation<RegionSelection, Error>?
-    private var activeScreen: NSScreen?
+    private var activeCaptureRect: CGRect?
     private var frozenScreen: CGImage?
 
     func selectRegion(using captureService: CaptureService) async throws -> RegionSelection {
@@ -21,10 +21,20 @@ final class RegionSelectionController {
         let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
         guard let screen else { throw CaptureError.cancelled }
         let backdropImage = try await captureService.captureFrozenScreen(rect: captureRect(for: screen))
-        if Task.isCancelled { throw CaptureError.cancelled }
+        return try await selectRegion(on: screen, backdropImage: backdropImage)
+    }
+
+    func selectRegion(on screen: NSScreen, backdropImage: CGImage) async throws -> RegionSelection {
+        try await selectRegion(captureRect: captureRect(for: screen), backdropImage: backdropImage)
+    }
+
+    func selectRegion(captureRect: CGRect, backdropImage: CGImage) async throws -> RegionSelection {
+        guard continuation == nil, !Task.isCancelled,
+              let mainTop = NSScreen.screens.first?.frame.maxY else { throw CaptureError.cancelled }
+        let frame = ScreenCoordinateTransform.appKitRect(fromCaptureRect: captureRect, mainScreenTop: mainTop)
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            presentOverlay(on: screen, backdropImage: backdropImage)
+            presentOverlay(frame: frame, captureRect: captureRect, backdropImage: backdropImage)
         }
     }
 
@@ -35,11 +45,11 @@ final class RegionSelectionController {
         return true
     }
 
-    private func presentOverlay(on screen: NSScreen, backdropImage: CGImage) {
-        activeScreen = screen
+    private func presentOverlay(frame: CGRect, captureRect: CGRect, backdropImage: CGImage) {
+        activeCaptureRect = captureRect
         frozenScreen = backdropImage
         let panel = KeyableSelectionPanel(
-            contentRect: screen.frame,
+            contentRect: frame,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -52,7 +62,7 @@ final class RegionSelectionController {
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         let overlay = SelectionOverlayView(
-            frame: CGRect(origin: .zero, size: screen.frame.size),
+            frame: CGRect(origin: .zero, size: frame.size),
             backdropImage: backdropImage
         )
         overlay.setAccessibilityLabel("Потяните, чтобы выбрать область снимка")
@@ -78,19 +88,19 @@ final class RegionSelectionController {
 
     private func complete(localRect: CGRect) {
         guard localRect.width >= 3, localRect.height >= 3,
-              let screen = activeScreen,
+              let captureRect = activeCaptureRect,
               let frozenScreen,
               let image = cropFrozenScreen(
                 localRect: localRect,
-                screenSize: screen.frame.size,
+                screenSize: captureRect.size,
                 image: frozenScreen
               ) else {
             finish(.failure(CaptureError.cancelled))
             return
         }
         let global = CGRect(
-            x: screen.frame.minX + localRect.minX,
-            y: captureRect(for: screen).minY + localRect.minY,
+            x: captureRect.minX + localRect.minX,
+            y: captureRect.minY + localRect.minY,
             width: localRect.width,
             height: localRect.height
         )
@@ -118,7 +128,7 @@ final class RegionSelectionController {
     private func finish(_ result: Result<RegionSelection, Error>) {
         panel?.orderOut(nil)
         panel = nil
-        activeScreen = nil
+        activeCaptureRect = nil
         frozenScreen = nil
         guard let continuation else { return }
         self.continuation = nil

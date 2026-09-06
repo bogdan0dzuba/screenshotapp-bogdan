@@ -1,6 +1,8 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import ScreenshotCore
+import ScreenCaptureKit
 
 @main
 struct CaptureServicePermissionChecks {
@@ -22,7 +24,37 @@ struct CaptureServicePermissionChecks {
         guard try Data(contentsOf: output) == sentinel else {
             throw NSError(domain: "Denied capture modified output", code: 1)
         }
-        print("CaptureServicePermissionChecks: OK (6 denied capture paths, output untouched)")
+        // An explicit picker grant must work even when the global preflight is false.
+        // Only the OS image boundary is substituted; PNG writing and error handling stay real.
+        let bitmap = CGContext(data: nil, width: 8, height: 6, bitsPerComponent: 8, bytesPerRow: 0,
+                               space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        bitmap.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        bitmap.fill(CGRect(x: 0, y: 0, width: 8, height: 6))
+        let frame = bitmap.makeImage()!
+        let selected = PreparedScrollCapture(contentFilter: SCContentFilter(),
+                                             configuration: SCStreamConfiguration(), requiresGlobalAccess: false)
+        let selectedService = CaptureService(screenCaptureAccess: { false }, filteredCapture: { _, _ in frame }, selectedCapture: { _, _ in frame })
+        var unrestricted = selected
+        unrestricted.requiresGlobalAccess = true
+        try await denied("unrestricted prepared frame") { try await selectedService.capture(unrestricted, to: output) }
+        try await selectedService.capture(selected, to: output)
+        guard let decoded = CGImageSourceCreateWithURL(output as CFURL, nil),
+              CGImageSourceGetCount(decoded) == 1,
+              let image = CGImageSourceCreateImageAtIndex(decoded, 0, nil), image.width == 8, image.height == 6 else {
+            throw NSError(domain: "Picker-authorized image was not written", code: 1)
+        }
+        try sentinel.write(to: output)
+        let revokedService = CaptureService(screenCaptureAccess: { false }, selectedCapture: { _, _ in
+            throw NSError(domain: SCStreamErrorDomain, code: SCStreamError.userDeclined.rawValue)
+        })
+        do {
+            try await revokedService.capture(selected, to: output)
+            throw NSError(domain: "Revoked picker access must fail", code: 1)
+        } catch let error as NSError where error.domain == SCStreamErrorDomain { }
+        guard try Data(contentsOf: output) == sentinel else {
+            throw NSError(domain: "Picker failure must not write output or fall back to legacy capture", code: 1)
+        }
+        print("CaptureServicePermissionChecks: OK (global denial, picker grant, picker revocation, output integrity)")
     }
 
     @MainActor

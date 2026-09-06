@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import ScreenshotCore
+import ScreenCaptureKit
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -44,7 +45,9 @@ final class AppModel: ObservableObject {
     private var activeAreaCaptureID: UUID?
     private var restartAreaCaptureAfterCancellation = false
     private var areaHotKeyAttemptCount = 0
-    private var screenCapturePermission = ScreenCapturePermission()
+    private let systemContentCapture = SystemContentCaptureController()
+    private var lastCaptureMode: CaptureMode = .area
+    private var lastCaptureWasScrolling = false
     private var isCheckingScreenCapturePermission = false
 
     init() {
@@ -136,6 +139,8 @@ final class AppModel: ObservableObject {
     }
 
     func capture(_ mode: CaptureMode) {
+        lastCaptureMode = mode
+        lastCaptureWasScrolling = false
         switch mode {
         case .area: captureArea()
         case .window, .fullScreen:
@@ -144,7 +149,12 @@ final class AppModel: ObservableObject {
     }
 
     private func captureArea() {
-        guard ensureScreenCapturePermission() else { return }
+        lastCaptureMode = .area
+        lastCaptureWasScrolling = false
+        guard CGPreflightScreenCaptureAccess() else {
+            captureWithSystemPicker(.area)
+            return
+        }
         guard let regionSelectionController else {
             CaptureTelemetry.logger.error("area_capture_unavailable")
             return
@@ -167,13 +177,48 @@ final class AppModel: ObservableObject {
     }
 
     private func captureWithSystemUI(_ mode: CaptureMode) {
-        guard ensureScreenCapturePermission() else { return }
+        guard CGPreflightScreenCaptureAccess() else {
+            captureWithSystemPicker(mode)
+            return
+        }
         guard let request = prepareCaptureRequest() else { return }
         let captureService = captureService
         let captureTask = Task.detached(priority: .userInitiated) {
             try await captureService.capture(mode, to: request.temporaryURL)
         }
         finishCapture(request, task: captureTask, isAreaCapture: false)
+    }
+
+    private func captureWithSystemPicker(_ mode: CaptureMode) {
+        guard let regionSelectionController, var request = prepareCaptureRequest() else { return }
+        // The system picker may select a different app from the previously frontmost one.
+        request.source = nil
+        statusMessage = "Выберите источник снимка в системном окне macOS"
+        let captureService = captureService
+        let captureTask = Task { @MainActor in
+            defer { systemContentCapture.endSession() }
+            let filter = try await systemContentCapture.select(window: mode == .window)
+            if Task.isCancelled { throw CaptureError.cancelled }
+            let prepared = try systemContentCapture.prepared(filter)
+            let image = try await captureService.capture(prepared)
+            if Task.isCancelled { throw CaptureError.cancelled }
+            let result: CGImage
+            if mode == .area {
+                let screen = try systemContentCapture.screen(for: filter)
+                let selection = try await regionSelectionController.selectRegion(on: screen, backdropImage: image)
+                result = selection.image
+            } else {
+                result = image
+            }
+            try await Task.detached(priority: .userInitiated) {
+                try captureService.write(result, to: request.temporaryURL)
+            }.value
+        }
+        if mode == .area {
+            activeAreaCaptureTask = captureTask
+            activeAreaCaptureID = request.id
+        }
+        finishCapture(request, task: captureTask, isAreaCapture: mode == .area)
     }
 
     private func prepareCaptureRequest() -> CaptureRequest? {
@@ -301,8 +346,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func startScrollingCapture() {
-        guard ensureScreenCapturePermission() else { return }
+    func startScrollingCapture(forceSystemPicker: Bool = false) {
+        lastCaptureWasScrolling = true
+        let useSystemPicker = forceSystemPicker || !CGPreflightScreenCaptureAccess()
         guard let regionSelectionController else { return }
         let captureID = UUID()
         guard captureActivity.beginCapture(id: captureID) else { return }
@@ -314,10 +360,20 @@ final class AppModel: ObservableObject {
         shelfController?.suspend()
         Task {
             do {
-                let selection = try await regionSelectionController.selectRegion(using: captureService)
-                let preparedCapture = try await captureService.prepareScrollCapture(
-                    rect: selection.rect
-                )
+                let selection: RegionSelection
+                let preparedCapture: PreparedScrollCapture
+                if useSystemPicker {
+                    pendingCaptureSource = nil
+                    statusMessage = "Выберите прокручиваемое окно в системном диалоге macOS"
+                    let filter = try await systemContentCapture.select(window: true)
+                    let windowRect = try systemContentCapture.windowRect(for: filter)
+                    let image = try await captureService.capture(systemContentCapture.prepared(filter))
+                    selection = try await regionSelectionController.selectRegion(captureRect: windowRect, backdropImage: image)
+                    preparedCapture = try systemContentCapture.prepared(filter, rect: selection.rect, within: windowRect)
+                } else {
+                    selection = try await regionSelectionController.selectRegion(using: captureService)
+                    preparedCapture = try await captureService.prepareScrollCapture(rect: selection.rect)
+                }
                 scrollCaptureController?.begin(
                     rect: selection.rect,
                     firstFrame: selection.image,
@@ -326,12 +382,14 @@ final class AppModel: ObservableObject {
                 )
                 statusMessage = "Область выбрана. Нажмите «Начать» рядом с рамкой"
             } catch CaptureError.cancelled {
+                systemContentCapture.endSession()
                 pendingCaptureSource = nil
                 pendingScrollCaptureID = nil
                 pendingScrollCaptureSequence = nil
                 cancelCapture(id: captureID)
                 resumeShelfAndPresentPendingResults()
             } catch {
+                systemContentCapture.endSession()
                 pendingCaptureSource = nil
                 pendingScrollCaptureID = nil
                 pendingScrollCaptureSequence = nil
@@ -356,6 +414,7 @@ final class AppModel: ObservableObject {
     }
 
     func finishScrolling(with image: CGImage) {
+        systemContentCapture.endSession()
         guard let captureID = pendingScrollCaptureID,
               let captureSequence = pendingScrollCaptureSequence else { return }
         pendingScrollCaptureID = nil
@@ -386,6 +445,7 @@ final class AppModel: ObservableObject {
     }
 
     func cancelScrolling() {
+        systemContentCapture.endSession()
         if let captureID = pendingScrollCaptureID {
             cancelCapture(id: captureID)
         }
@@ -604,31 +664,21 @@ final class AppModel: ObservableObject {
         received(result.item)
     }
 
-    private func ensureScreenCapturePermission() -> Bool {
-        guard !isCheckingScreenCapturePermission else { return false }
-        isCheckingScreenCapturePermission = true
-        defer { isCheckingScreenCapturePermission = false }
-        let allowed = screenCapturePermission.requestIfNeeded(
-            preflight: { CGPreflightScreenCaptureAccess() },
-            request: {
-                NSApp.activate(ignoringOtherApps: true)
-                return CGRequestScreenCaptureAccess()
-            }
-        )
-        if !allowed { showScreenCapturePermissionAlert() }
-        return allowed
-    }
-
     private func showScreenCapturePermissionAlert() {
         statusMessage = "Нужен доступ к записи экрана"
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Разрешите запись экрана"
-        alert.informativeText = ScreenCapturePermissionError.denied.localizedDescription
-        alert.addButton(withTitle: "Открыть настройки")
+        alert.messageText = "Выберите источник снимка через macOS"
+        alert.informativeText = "macOS не подтвердила общий доступ к экрану для этой копии программы. Можно сделать снимок без переустановки: выберите нужный экран или окно в системном диалоге. Программа получит доступ только к выбранному содержимому на время этого захвата."
+        alert.addButton(withTitle: "Выбрать источник")
         alert.addButton(withTitle: "Отмена")
-        if alert.runModal() == .alertFirstButtonReturn {
+        alert.addButton(withTitle: "Настройки доступа")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if lastCaptureWasScrolling { startScrollingCapture(forceSystemPicker: true) }
+            else { captureWithSystemPicker(lastCaptureMode) }
+        } else if response == .alertThirdButtonReturn {
             openScreenRecordingSettings()
         }
     }
@@ -640,7 +690,10 @@ final class AppModel: ObservableObject {
     }
 
     func present(_ error: Error) {
-        if error is ScreenCapturePermissionError {
+        let nsError = error as NSError
+        CaptureTelemetry.logger.error("capture_error domain=\(nsError.domain, privacy: .public) code=\(nsError.code) global_access=\(CGPreflightScreenCaptureAccess())")
+        if error is ScreenCapturePermissionError ||
+            (nsError.domain == SCStreamErrorDomain && nsError.code == SCStreamError.userDeclined.rawValue) {
             guard !isCheckingScreenCapturePermission else { return }
             isCheckingScreenCapturePermission = true
             defer { isCheckingScreenCapturePermission = false }

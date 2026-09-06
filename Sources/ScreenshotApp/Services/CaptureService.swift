@@ -28,10 +28,19 @@ enum CaptureError: LocalizedError {
 struct PreparedScrollCapture: @unchecked Sendable {
     let contentFilter: SCContentFilter
     let configuration: SCStreamConfiguration
+    // Picker filters carry a separate, user-selected session grant.
+    var requiresGlobalAccess = true
 }
 
 struct CaptureService: Sendable {
     var screenCaptureAccess: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
+    var filteredCapture: @Sendable (SCContentFilter, SCStreamConfiguration) async throws -> CGImage = {
+        try await SCScreenshotManager.captureImage(contentFilter: $0, configuration: $1)
+    }
+
+    var selectedCapture: @Sendable (SCContentFilter, SCStreamConfiguration) async throws -> CGImage = {
+        try await SelectedContentFrameCapture.image(filter: $0, configuration: $1)
+    }
 
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
         try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
@@ -171,12 +180,17 @@ struct CaptureService: Sendable {
     }
 
     func capture(_ prepared: PreparedScrollCapture) async throws -> CGImage {
-        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: prepared.contentFilter,
-            configuration: prepared.configuration
+        if prepared.requiresGlobalAccess {
+            try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
+        }
+        // The OS enforces the picker filter's per-session grant. A global preflight cannot
+        // validate it, and no legacy fallback may replace the explicitly selected content.
+        let image = try await (prepared.requiresGlobalAccess ? filteredCapture : selectedCapture)(
+            prepared.contentFilter, prepared.configuration
         )
-        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
+        if prepared.requiresGlobalAccess {
+            try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
+        }
         CaptureTelemetry.logger.info("filtered_scroll_region_capture_finished")
         return image
     }
