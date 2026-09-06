@@ -31,7 +31,10 @@ struct PreparedScrollCapture: @unchecked Sendable {
 }
 
 struct CaptureService: Sendable {
+    var screenCaptureAccess: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
+
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         let integral = rect.integral
         if #available(macOS 15.2, *) {
             do {
@@ -44,6 +47,7 @@ struct CaptureService: Sendable {
                         }
                     }
                 }
+                try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
                 CaptureTelemetry.logger.info("frozen_screen_captured")
                 return image
             } catch {
@@ -74,6 +78,7 @@ struct CaptureService: Sendable {
     }
 
     func capture(_ mode: CaptureMode, to outputURL: URL) async throws {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         var arguments = ["-x"]
         switch mode {
         case .area: arguments += ["-i", "-s"]
@@ -85,11 +90,13 @@ struct CaptureService: Sendable {
     }
 
     func capture(rect: CGRect, to outputURL: URL) async throws {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         let integral = rect.integral
         if #available(macOS 15.2, *) {
             do {
                 try? FileManager.default.removeItem(at: outputURL)
                 let image = try await SCScreenshotManager.captureImage(in: integral)
+                try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
                 try Self.writePNG(image, to: outputURL)
                 CaptureTelemetry.logger.info("native_region_capture_finished")
                 return
@@ -103,6 +110,7 @@ struct CaptureService: Sendable {
 
     @MainActor
     func prepareScrollCapture(rect: CGRect) async throws -> PreparedScrollCapture {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         guard let mainScreenTop = NSScreen.screens.first?.frame.maxY else {
             throw CaptureError.missingOutput
         }
@@ -121,6 +129,7 @@ struct CaptureService: Sendable {
             false,
             onScreenWindowsOnly: false
         )
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         guard let display = shareableContent.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.missingOutput
         }
@@ -162,10 +171,12 @@ struct CaptureService: Sendable {
     }
 
     func capture(_ prepared: PreparedScrollCapture) async throws -> CGImage {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: prepared.contentFilter,
             configuration: prepared.configuration
         )
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         CaptureTelemetry.logger.info("filtered_scroll_region_capture_finished")
         return image
     }
@@ -191,6 +202,7 @@ struct CaptureService: Sendable {
     }
 
     private func runScreencapture(arguments: [String], outputURL: URL) async throws {
+        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         try? FileManager.default.removeItem(at: outputURL)
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -216,6 +228,12 @@ struct CaptureService: Sendable {
             } catch {
                 continuation.resume(throwing: error)
             }
+        }
+        do {
+            try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
     }
 }

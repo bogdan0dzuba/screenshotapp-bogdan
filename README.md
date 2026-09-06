@@ -8,8 +8,14 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Universal](https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v5.50-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.50)
+[![Версия](https://img.shields.io/badge/версия-v5.51-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.51)
 [![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
+
+## Исправление в 5.51
+
+Перед выбором области, окна, всего экрана и прокруткой приложение проверяет разрешение «Запись экрана». При первом обращении без доступа запрашивает его у macOS. Если доступ не выдан или еще не применился, показывает объяснение и кнопку «Открыть настройки»; неполный снимок не открывается в редакторе. После включения доступа полностью завершите и снова запустите установленное приложение.
+
+Резервный способ захвата также проверяет доступ. Проверены отказ, повторная попытка, выдача и отзыв разрешения, а также шесть путей сервиса с запрещенным доступом без изменения выходного файла.
 
 ## Что изменилось в 5.50
 

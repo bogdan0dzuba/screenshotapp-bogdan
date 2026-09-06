@@ -2427,6 +2427,7 @@ private func checkLaunchAtLoginPolicy() throws {
 }
 
 do {
+    try checkScreenCapturePermission()
     try checkInstallationFailureRecovery()
     try checkDecodedImageCache()
     try checkAnnotationRenderReuse()

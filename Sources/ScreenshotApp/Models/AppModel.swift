@@ -44,6 +44,8 @@ final class AppModel: ObservableObject {
     private var activeAreaCaptureID: UUID?
     private var restartAreaCaptureAfterCancellation = false
     private var areaHotKeyAttemptCount = 0
+    private var screenCapturePermission = ScreenCapturePermission()
+    private var isCheckingScreenCapturePermission = false
 
     init() {
         let preferences = AppPreferences()
@@ -142,6 +144,7 @@ final class AppModel: ObservableObject {
     }
 
     private func captureArea() {
+        guard ensureScreenCapturePermission() else { return }
         guard let regionSelectionController else {
             CaptureTelemetry.logger.error("area_capture_unavailable")
             return
@@ -164,6 +167,7 @@ final class AppModel: ObservableObject {
     }
 
     private func captureWithSystemUI(_ mode: CaptureMode) {
+        guard ensureScreenCapturePermission() else { return }
         guard let request = prepareCaptureRequest() else { return }
         let captureService = captureService
         let captureTask = Task.detached(priority: .userInitiated) {
@@ -298,6 +302,7 @@ final class AppModel: ObservableObject {
     }
 
     func startScrollingCapture() {
+        guard ensureScreenCapturePermission() else { return }
         guard let regionSelectionController else { return }
         let captureID = UUID()
         guard captureActivity.beginCapture(id: captureID) else { return }
@@ -599,6 +604,35 @@ final class AppModel: ObservableObject {
         received(result.item)
     }
 
+    private func ensureScreenCapturePermission() -> Bool {
+        guard !isCheckingScreenCapturePermission else { return false }
+        isCheckingScreenCapturePermission = true
+        defer { isCheckingScreenCapturePermission = false }
+        let allowed = screenCapturePermission.requestIfNeeded(
+            preflight: { CGPreflightScreenCaptureAccess() },
+            request: {
+                NSApp.activate(ignoringOtherApps: true)
+                return CGRequestScreenCaptureAccess()
+            }
+        )
+        if !allowed { showScreenCapturePermissionAlert() }
+        return allowed
+    }
+
+    private func showScreenCapturePermissionAlert() {
+        statusMessage = "Нужен доступ к записи экрана"
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Разрешите запись экрана"
+        alert.informativeText = ScreenCapturePermissionError.denied.localizedDescription
+        alert.addButton(withTitle: "Открыть настройки")
+        alert.addButton(withTitle: "Отмена")
+        if alert.runModal() == .alertFirstButtonReturn {
+            openScreenRecordingSettings()
+        }
+    }
+
     func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
@@ -606,6 +640,13 @@ final class AppModel: ObservableObject {
     }
 
     func present(_ error: Error) {
+        if error is ScreenCapturePermissionError {
+            guard !isCheckingScreenCapturePermission else { return }
+            isCheckingScreenCapturePermission = true
+            defer { isCheckingScreenCapturePermission = false }
+            showScreenCapturePermissionAlert()
+            return
+        }
         statusMessage = error.localizedDescription
         let alert = NSAlert(error: error)
         alert.messageText = "Скриншот не готов"
