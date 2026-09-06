@@ -10,7 +10,7 @@ public struct ScrollFrameSettler: Sendable {
     private var pendingSince: Double?
     private let minimumStableDuration: Double
 
-    public init(minimumStableDuration: Double = 0.32) {
+    public init(minimumStableDuration: Double = 0.20) {
         self.minimumStableDuration = max(0, minimumStableDuration)
     }
 

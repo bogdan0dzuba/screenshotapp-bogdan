@@ -28,11 +28,11 @@ public enum ScrollAutoAdvancePolicy {
     ) -> ScrollAutoAdvanceStep {
         let raw = Int((captureHeight / 3).rounded())
         let magnitude = min(maximumStep, max(minimumStep, raw))
-        // Один цикл опроса - 0,36 с, стабилизация - 0,32 с. Ждём с запасом,
+        // Один цикл опроса - 0,22 с, стабилизация - 0,20 с. Ждём с запасом,
         // иначе автопрокрутка обгонит собственную склейку.
         return ScrollAutoAdvanceStep(
             wheelDelta: direction == .down ? -magnitude : magnitude,
-            settleSeconds: 0.85
+            settleSeconds: 0.55
         )
     }
 

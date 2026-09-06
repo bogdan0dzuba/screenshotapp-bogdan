@@ -47,6 +47,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary, .transient]
         panel.title = AppIdentity.displayName
         panel.titleVisibility = .hidden
@@ -284,4 +285,9 @@ private final class KeyableShelfPanel: NSPanel {
 
 private final class ShelfHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .arrow)
+    }
 }

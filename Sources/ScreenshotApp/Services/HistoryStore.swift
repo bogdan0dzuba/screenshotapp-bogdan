@@ -33,7 +33,7 @@ private actor CapturePreparationQueue {
 final class HistoryStore: ObservableObject {
     @Published private(set) var items: [CaptureItem] = []
     @Published private(set) var folderURL: URL
-    @Published private(set) var imageRevision = 0
+    @Published private(set) var imageRevisions = HistoryImageRevisionIndex()
 
     private var maximumCount: Int
     private var maximumAgeDays: Int
@@ -111,9 +111,16 @@ final class HistoryStore: ObservableObject {
         guard targetFolder == folderURL else { throw HistoryStoreError.captureFolderChanged }
         items.removeAll { $0.id == item.id }
         items.insert(item, at: 0)
-        try applyRetention(to: items)
-        imageRevision &+= 1
+        let retention = retentionResult(for: items)
+        items = retention.retained
+        registerImageRevision(for: item.id)
+        retainImageRevisions(for: retention.retained)
+        scheduleRetentionCleanup(for: retention.removed)
         return item
+    }
+
+    func imageRevision(for item: CaptureItem) -> Int {
+        imageRevisions.revision(for: item.id)
     }
 
     func loadDocument(for item: CaptureItem) -> EditorDocument {
@@ -143,13 +150,13 @@ final class HistoryStore: ObservableObject {
         if let projectURL = item.projectURL {
             try writeProject(document, to: projectURL)
         }
-        imageRevision &+= 1
+        bumpImageRevision(for: item.id)
     }
 
     func delete(_ item: CaptureItem) throws {
-        try trashFiles(for: item)
+        try deleteFiles(for: item)
         items.removeAll { $0.id == item.id }
-        imageRevision &+= 1
+        removeImageRevision(for: item.id)
     }
 
     func clearAll() throws {
@@ -159,18 +166,11 @@ final class HistoryStore: ObservableObject {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
-        var firstError: Error?
-        for url in files where CaptureFileClassifier.isRegularManagedCaptureFile(url) {
-            do {
-                try trash(url)
-            } catch {
-                if firstError == nil { firstError = error }
-            }
-        }
+        let managedFiles = files.filter(CaptureFileClassifier.isRegularManagedCaptureFile)
+        try Self.deleteFiles(at: managedFiles, fileManager: fileManager)
         items.removeAll { !fileManager.fileExists(atPath: $0.imageURL.path) }
-        if let firstError { throw firstError }
         items.removeAll()
-        imageRevision &+= 1
+        imageRevisions.removeAll()
     }
 
     func reload() throws {
@@ -205,8 +205,13 @@ final class HistoryStore: ObservableObject {
                 captureSource: document?.captureSource
             )
         }
-        try applyRetention(to: captures)
-        imageRevision &+= 1
+        let retention = retentionResult(for: captures)
+        items = retention.retained
+        for item in retention.retained {
+            bumpImageRevision(for: item.id)
+        }
+        retainImageRevisions(for: retention.retained)
+        scheduleRetentionCleanup(for: retention.removed)
     }
 
     static func write(_ image: CGImage, to url: URL, format: AppPreferences.ImageFormat) throws {
@@ -219,7 +224,7 @@ final class HistoryStore: ObservableObject {
         try data.write(to: url, options: .atomic)
     }
 
-    private func applyRetention(to candidates: [CaptureItem]) throws {
+    private func retentionResult(for candidates: [CaptureItem]) -> (retained: [CaptureItem], removed: [CaptureItem]) {
         let retained = HistoryIndex.pruned(
             items: candidates,
             automaticCleanupEnabled: automaticCleanupEnabled,
@@ -229,16 +234,45 @@ final class HistoryStore: ObservableObject {
         )
         let retainedIDs = Set(retained.map(\.id))
         let removed = candidates.filter { !retainedIDs.contains($0.id) }
-        items = retained
-        var firstError: Error?
-        for item in removed {
+        return (retained: retained, removed: removed)
+    }
+
+    private func registerImageRevision(for id: UUID) {
+        var revisions = imageRevisions
+        revisions.register(id)
+        imageRevisions = revisions
+    }
+
+    private func bumpImageRevision(for id: UUID) {
+        var revisions = imageRevisions
+        revisions.bump(id)
+        imageRevisions = revisions
+    }
+
+    private func removeImageRevision(for id: UUID) {
+        var revisions = imageRevisions
+        revisions.remove(id)
+        imageRevisions = revisions
+    }
+
+    private func retainImageRevisions(for retained: [CaptureItem]) {
+        var revisions = imageRevisions
+        revisions.retain(ids: Set(retained.map(\.id)))
+        imageRevisions = revisions
+    }
+
+    private func scheduleRetentionCleanup(for removed: [CaptureItem]) {
+        guard !removed.isEmpty else { return }
+        let urls = removed.flatMap(Self.managedFileURLs(for:))
+        Task.detached(priority: .utility) {
             do {
-                try trashFiles(for: item)
+                try Self.deleteFiles(at: urls, fileManager: .default)
             } catch {
-                if firstError == nil { firstError = error }
+                CaptureTelemetry.logger.error(
+                    "background_retention_cleanup_failed: \(error.localizedDescription, privacy: .public)"
+                )
             }
         }
-        if let firstError { throw firstError }
     }
 
     private func ensureFolder() throws {
@@ -321,29 +355,35 @@ final class HistoryStore: ObservableObject {
         }
     }
 
-    private func trashFiles(for item: CaptureItem) throws {
+    private func deleteFiles(for item: CaptureItem) throws {
+        try Self.deleteFiles(at: Self.managedFileURLs(for: item), fileManager: fileManager)
+    }
+
+    nonisolated private static func managedFileURLs(for item: CaptureItem) -> [URL] {
         let stem = item.imageURL.deletingPathExtension().lastPathComponent
         let itemFolder = item.imageURL.deletingLastPathComponent()
-        let urls = [
+        return [
             item.imageURL,
             item.projectURL ?? itemFolder.appendingPathComponent("\(stem).project.json"),
             itemFolder.appendingPathComponent("\(stem).source.png"),
         ]
+    }
+
+    nonisolated private static func deleteFiles(
+        at urls: [URL],
+        fileManager: FileManager
+    ) throws {
+        let existingURLs = CaptureFileClassifier.regularManagedCaptureFiles(in: Array(Set(urls)))
+            .filter { fileManager.fileExists(atPath: $0.path) }
         var firstError: Error?
-        for url in CaptureFileClassifier.regularManagedCaptureFiles(in: Array(Set(urls))) {
+        for url in existingURLs {
             do {
-                try trash(url)
+                try fileManager.removeItem(at: url)
             } catch {
                 if firstError == nil { firstError = error }
             }
         }
         if let firstError { throw firstError }
-    }
-
-    private func trash(_ url: URL) throws {
-        guard fileManager.fileExists(atPath: url.path) else { return }
-        var resultingURL: NSURL?
-        try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
     }
 
     nonisolated private static func occupiedCaptureStems(

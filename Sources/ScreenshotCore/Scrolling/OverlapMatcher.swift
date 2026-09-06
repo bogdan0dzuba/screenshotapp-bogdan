@@ -75,11 +75,15 @@ public enum OverlapMatcher {
 
         var bestOverlap = 0
         var bestScore = Double.infinity
-        for contentOverlap in 1...maximum {
+        func score(
+            for contentOverlap: Int,
+            rowSampleLimit: Int,
+            columnSampleLimit: Int
+        ) -> Double? {
             let previousStart = previous.height - contentOverlap
             let nextStart = fixedTopRows
-            let rowStride = max(1, contentOverlap / 64)
-            let columnStride = max(1, previous.width / 48)
+            let rowStride = max(1, contentOverlap / max(1, rowSampleLimit))
+            let columnStride = max(1, previous.width / max(1, columnSampleLimit))
             var difference: Int64 = 0
             var sampled = 0
             var compared = 0
@@ -106,13 +110,52 @@ public enum OverlapMatcher {
                 }
             }
             let minimumInformativeSamples = min(sampled, max(8, sampled / 50))
-            guard compared >= minimumInformativeSamples else { continue }
-            let score = Double(difference) / Double(compared)
+            guard compared >= minimumInformativeSamples else { return nil }
+            return Double(difference) / Double(compared)
+        }
+
+        func consider(_ contentOverlap: Int) {
+            guard let score = score(
+                for: contentOverlap,
+                rowSampleLimit: 64,
+                columnSampleLimit: 48
+            ) else { return }
             let fullFrameOverlap = fixedTopRows + contentOverlap
             if score < bestScore || (score == bestScore && fullFrameOverlap > bestOverlap) {
                 bestScore = score
                 bestOverlap = fullFrameOverlap
             }
+        }
+
+        if maximum <= 256 {
+            for contentOverlap in 1...maximum {
+                consider(contentOverlap)
+            }
+        } else {
+            // Every possible seam is still considered, but the first pass samples
+            // only a small grid. This keeps a sharp one-row match discoverable;
+            // coarse-only candidate positions can skip it on dense content.
+            var quickCandidates: [(contentOverlap: Int, score: Double)] = []
+            quickCandidates.reserveCapacity(maximum)
+            for contentOverlap in 1...maximum {
+                guard let quickScore = score(
+                    for: contentOverlap,
+                    rowSampleLimit: 16,
+                    columnSampleLimit: 16
+                ) else { continue }
+                quickCandidates.append((contentOverlap, quickScore))
+            }
+            quickCandidates.sort {
+                if $0.score != $1.score { return $0.score < $1.score }
+                return $0.contentOverlap > $1.contentOverlap
+            }
+            for candidate in quickCandidates.prefix(48) {
+                consider(candidate.contentOverlap)
+            }
+            // Keep boundary behavior identical when all quick samples are
+            // uninformative or tie on a flat viewport.
+            consider(1)
+            consider(maximum)
         }
 
         return VerticalOverlapMatch(

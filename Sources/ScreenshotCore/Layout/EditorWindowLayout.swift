@@ -1,5 +1,5 @@
 public enum EditorWindowLayout {
-    public static let minimumContentSize = CanvasSize(width: 440, height: 320)
+    public static let minimumContentSize = CanvasSize(width: 720, height: 320)
     public static let chromeSize = CanvasSize(width: 136, height: 176)
 
     public static func contentSize(

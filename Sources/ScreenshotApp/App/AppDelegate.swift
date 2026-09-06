@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.regionSelectionController?.focusPendingOverlayIfNeeded()
+    }
+
     func showSettings() {
         settingsController?.show()
     }

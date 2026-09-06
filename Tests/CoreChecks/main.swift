@@ -245,6 +245,54 @@ private func checkEditorState() throws {
     try expect(state.document.annotations.isEmpty, "editor deletes selected layer")
 }
 
+private func checkEditorToolOrderPolicy() throws {
+    let defaults = EditorToolOrderPolicy.defaultOrder
+    var invalidOffsets = IndexSet(integer: 999)
+    invalidOffsets.insert(-1)
+    try expect(defaults.first == "rectangle", "editor tool defaults start with rectangle")
+    try expect(
+        EditorToolOrderPolicy.normalize(["arrow", "unknown", "arrow", "rectangle"]) ==
+            ["arrow", "rectangle", "line", "ellipse", "pencil", "highlighter", "text", "counter", "blur", "pixelate"],
+        "editor tool order removes unknown and duplicate identifiers and restores missing tools"
+    )
+    try expect(
+        EditorToolOrderPolicy.move(fromOffsets: IndexSet(integer: 0), toOffset: defaults.count, in: defaults) ==
+            Array(defaults.dropFirst()) + ["rectangle"],
+        "editor tool order moves the first tool to the end"
+    )
+    try expect(
+        EditorToolOrderPolicy.move(fromOffsets: IndexSet(integer: defaults.count - 1), toOffset: 0, in: defaults) ==
+            ["pixelate"] + Array(defaults.dropLast()),
+        "editor tool order moves the last tool to the beginning"
+    )
+    try expect(
+        EditorToolOrderPolicy.move(fromOffsets: invalidOffsets, toOffset: -50, in: defaults) == defaults,
+        "invalid editor tool indices leave the normalized order intact"
+    )
+}
+
+private func checkSelectionSizeLabelPlacement() throws {
+    let bounds = CGRect(x: 0, y: 0, width: 300, height: 200)
+    let labelSize = CGSize(width: 80, height: 20)
+
+    try expect(
+        SelectionSizeLabelPlacement.origin(
+            near: CGPoint(x: 100, y: 120),
+            labelSize: labelSize,
+            in: bounds
+        ) == CGPoint(x: 112, y: 132),
+        "the selection size label follows the pointer with a readable gap"
+    )
+    try expect(
+        SelectionSizeLabelPlacement.origin(
+            near: CGPoint(x: 290, y: 190),
+            labelSize: labelSize,
+            in: bounds
+        ) == CGPoint(x: 198, y: 158),
+        "the selection size label flips beside the pointer before it can leave the screen"
+    )
+}
+
 private func checkAnnotationDraftBuilder() throws {
     let style = AnnotationStyle(color: .red, lineWidth: 5)
     let start = NormalizedPoint(x: 0.25, y: 0.25)
@@ -394,6 +442,47 @@ private func checkAutomaticScrollFrameSelection() throws {
     )
 }
 
+private func checkLargeOverlapMatching() throws {
+    let width = 32
+    let height = 1_200
+    let overlap = 780
+
+    func pixel(row: Int, column: Int) -> UInt8 {
+        var value = UInt64(truncatingIfNeeded: row) &* 2_862_933_555_777_941_757
+        value ^= UInt64(truncatingIfNeeded: column) &* 1_149_717_458_159_123_821
+        value ^= value >> 33
+        value &*= 1_602_903_438_983_741_521
+        value ^= value >> 29
+        return UInt8(truncatingIfNeeded: value)
+    }
+
+    var previousPixels: [UInt8] = []
+    previousPixels.reserveCapacity(width * height)
+    for row in 0..<height {
+        for column in 0..<width {
+            previousPixels.append(pixel(row: row, column: column))
+        }
+    }
+
+    var nextPixels: [UInt8] = []
+    nextPixels.reserveCapacity(width * height)
+    for row in 0..<height {
+        let sourceRow = row < overlap ? height - overlap + row : height + row + 17
+        for column in 0..<width {
+            nextPixels.append(pixel(row: sourceRow, column: column))
+        }
+    }
+
+    let previous = GrayImage(width: width, height: height, pixels: previousPixels)
+    let next = GrayImage(width: width, height: height, pixels: nextPixels)
+    let match = try OverlapMatcher.bestVerticalMatch(previous: previous, next: next)
+    try expect(
+        match.overlap == overlap && match.meanDifference <= 1,
+        "large-frame overlap sampling refines to the exact seam "
+            + "(overlap=\(match.overlap), score=\(match.meanDifference))"
+    )
+}
+
 private func checkScrollFrameSettling() throws {
     let first = GrayImage(
         width: 3,
@@ -441,7 +530,7 @@ private func checkScrollFrameSettling() throws {
         accepted: first,
         observed: shifted,
         policy: policy,
-        observedAt: 0.30
+        observedAt: 0.18
     )
     try expect(
         stillPendingOutcome == .pending(.append(overlap: 3)),
@@ -451,7 +540,7 @@ private func checkScrollFrameSettling() throws {
         accepted: first,
         observed: shifted,
         policy: policy,
-        observedAt: 0.36
+        observedAt: 0.24
     )
     try expect(
         committedOutcome == .commit(.append(overlap: 3)),
@@ -830,7 +919,7 @@ private func checkScrollAutoAdvancePolicy() throws {
     let step = ScrollAutoAdvancePolicy.step(captureHeight: 600, direction: .down)
     try expect(step.wheelDelta == -200, "a downward step moves a third of the selection")
     try expect(
-        step.settleSeconds > 0.36 + 0.32,
+        step.settleSeconds > 0.22 + 0.20,
         "the step waits longer than one poll plus the settle interval, so it cannot outrun stitching"
     )
     let up = ScrollAutoAdvancePolicy.step(captureHeight: 600, direction: .up)
@@ -903,9 +992,9 @@ private func checkScrollCaptureCoverageRendering() throws {
     view.presentNeedsOverlap()
     let recovery = try renderedBitmap()
     try expect(
-        alpha(recovery, x: 150, y: 100) < 0.01
-            && alpha(recovery, x: 150, y: 800) < 0.01,
-        "the real AppKit coverage view does not mark an unconfirmed viewport during recovery"
+        alpha(recovery, x: 150, y: 100) > 0.25
+            && alpha(recovery, x: 150, y: 800) > 0.25,
+        "the last accepted viewport remains marked during overlap recovery"
     )
 
     view.present(
@@ -940,18 +1029,20 @@ private func checkScrollCaptureCoverageRendering() throws {
             + "(low alpha: \(pendingUpLowAlpha), high alpha: \(pendingUpHighAlpha))"
     )
 
-    // За пределами рамки не рисуется ничего: прогресс показывает панель-рельс,
-    // а страница под рамкой остаётся открытой.
+    // Внешний след показывает уже добавленные строки, но не содержит копию страницы.
     let selectionRect = CGRect(x: 50, y: 300, width: 200, height: 300)
-    view.configure(captureRect: selectionRect, screenRect: bounds)
+    var trail = ScrollCaptureTrail()
+    trail.append(frameHeight: 1_000, overlap: 500, captureHeight: 300)
+    view.configure(captureRect: selectionRect, screenRect: bounds, trail: trail)
     view.presentCapturedViewport()
     let scopedBitmap = try renderedBitmap()
     try expect(
         alpha(scopedBitmap, x: 150, y: 450) > 0.15
             && alpha(scopedBitmap, x: 150, y: 200) < 0.01
-            && alpha(scopedBitmap, x: 150, y: 700) < 0.01
+            && alpha(scopedBitmap, x: 150, y: 700) > 0.15
+            && alpha(scopedBitmap, x: 150, y: 850) < 0.01
             && alpha(scopedBitmap, x: 20, y: 450) < 0.01,
-        "the accepted mark stays inside the selected rectangle and never paints the page around it"
+        "the accepted mark and orange trail stay within the selected column"
     )
 
     // Тот же кадр на дисплее со смещённым началом координат должен попасть в те же пиксели вида.
@@ -971,6 +1062,33 @@ private func checkScrollCaptureCoverageRendering() throws {
     )
 }
 
+private func checkScrollCaptureTrail() throws {
+    var trail = ScrollCaptureTrail()
+    trail.append(frameHeight: 1_000, overlap: 600, captureHeight: 500)
+    try expect(trail.appendHeight == 200, "downward trail uses only newly captured rows")
+    trail.prepend(frameHeight: 1_000, overlap: 800, captureHeight: 500)
+    try expect(trail.prependHeight == 100, "upward trail uses only newly captured rows")
+    let clipped = trail.externalRect(
+        captureRect: CGRect(x: 100, y: 100, width: 300, height: 500),
+        screenRect: CGRect(x: 0, y: 0, width: 800, height: 700),
+        direction: .down
+    )
+    try expect(
+        clipped == CGRect(x: 100, y: 600, width: 300, height: 100),
+        "trail clips to the visible screen"
+    )
+    trail.undoLast()
+    try expect(
+        trail.prependHeight == 0 && trail.appendHeight == 200,
+        "undo removes the last trail increment"
+    )
+    trail.reset()
+    try expect(
+        trail.appendHeight == 0 && trail.prependHeight == 0,
+        "reset clears the trail"
+    )
+}
+
 private func checkCaptureCompletionPolicy() throws {
     try expect(CaptureCompletionPolicy.standard.opensEditor, "a finished screenshot opens the editor")
     try expect(CaptureCompletionPolicy.standard.revealsShelf, "a finished screenshot remains available on the shelf")
@@ -978,12 +1096,32 @@ private func checkCaptureCompletionPolicy() throws {
 
 private func checkAreaCaptureRecoveryPolicy() throws {
     try expect(
-        AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: false) == .start,
+        AreaCaptureRecoveryPolicy.action(
+            hasActiveAreaCapture: false,
+            hotKeyAttemptCount: 1
+        ) == .start,
         "an idle hotkey starts a new area capture"
     )
     try expect(
-        AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: true) == .cancelAndRestart,
-        "a repeated hotkey recovers a stuck area capture instead of being ignored"
+        AreaCaptureRecoveryPolicy.action(
+            hasActiveAreaCapture: true,
+            hotKeyAttemptCount: 2
+        ) == .waitForRecovery,
+        "the second hotkey attempt waits instead of cancelling a live selection"
+    )
+    try expect(
+        AreaCaptureRecoveryPolicy.action(
+            hasActiveAreaCapture: true,
+            hotKeyAttemptCount: 3
+        ) == .cancelAndRestart,
+        "the third hotkey attempt forces a stuck area capture to restart"
+    )
+    try expect(
+        AreaCaptureRecoveryPolicy.action(
+            hasActiveAreaCapture: true,
+            hotKeyAttemptCount: 4
+        ) == .cancelAndRestart,
+        "additional hotkey attempts keep the forced recovery action"
     )
 }
 
@@ -1113,6 +1251,23 @@ private func checkImageLoadRequestState() throws {
     try expect(state.begin(replacement) != nil, "the same request retries after cancellation")
 }
 
+private func checkHistoryImageRevisionIndex() throws {
+    let first = UUID()
+    let second = UUID()
+    var index = HistoryImageRevisionIndex()
+
+    try expect(index.revision(for: first) == 0, "an unseen capture starts at revision zero")
+    index.register(first)
+    index.register(second)
+    index.bump(first)
+
+    try expect(index.revision(for: first) == 1, "saving one capture bumps only its revision")
+    try expect(index.revision(for: second) == 0, "an unrelated capture keeps its revision")
+
+    index.retain(ids: [first])
+    try expect(index.revision(for: second) == 0, "removed captures do not affect retained revisions")
+}
+
 private func checkShelfPreviewDecodePolicy() throws {
     let viewport = CanvasSize(width: 380, height: 400)
     let longImage = PixelDimensions(width: 1_440, height: 100_000)
@@ -1186,8 +1341,8 @@ private func checkEditorCanvasLayout() throws {
         visibleSize: CanvasSize(width: 1_440, height: 900)
     )
     try expect(
-        compactWindow == CanvasSize(width: 440, height: 320),
-        "tiny screenshots open in a compact usable editor"
+        compactWindow == CanvasSize(width: 720, height: 320),
+        "tiny screenshots open in an editor wide enough for the toolbar actions"
     )
 
     let normalWindow = EditorWindowLayout.contentSize(
@@ -1723,6 +1878,27 @@ private func checkShelfToggleGesturePolicy() throws {
     )
 }
 
+private func checkScreenshotDragGesturePolicy() throws {
+    var gesture = ScreenshotDragGestureState(start: CGPoint(x: 10, y: 10))
+    gesture.update(to: CGPoint(x: 12, y: 12))
+    try expect(
+        !gesture.didDrag && gesture.shouldClickOnRelease,
+        "a short screenshot-row movement remains a selection click"
+    )
+
+    gesture.update(to: CGPoint(x: 18, y: 10))
+    try expect(
+        gesture.didDrag && !gesture.shouldClickOnRelease,
+        "moving a screenshot row beyond the threshold starts a drag"
+    )
+
+    gesture.update(to: CGPoint(x: 10, y: 10))
+    try expect(
+        gesture.didDrag && !gesture.shouldClickOnRelease,
+        "returning to the start cannot turn a screenshot drag back into a click"
+    )
+}
+
 private func checkShelfWindowSizeStorage() throws {
     let suiteName = "ScreenshotApp.CoreChecks.ShelfSize.\(UUID().uuidString)"
     guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -1871,6 +2047,14 @@ private func checkScreenshotTransferPayloads() throws {
         .appendingPathComponent("ScreenshotTransfer-\(UUID().uuidString).png")
     try pngData.write(to: fileURL, options: .atomic)
     defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    let nativeDragItem = ScreenshotTransfer.pasteboardItem(for: fileURL)
+    try expect(nativeDragItem != nil, "native drag creates a pasteboard item")
+    try expect(nativeDragItem?.data(forType: .png) == pngData, "native drag carries the stored PNG bytes")
+    try expect(
+        nativeDragItem?.string(forType: .fileURL) == fileURL.absoluteString,
+        "native drag carries the stored screenshot file URL"
+    )
 
     let pasteboard = NSPasteboard(name: NSPasteboard.Name("ScreenshotApp.CoreChecks.\(UUID().uuidString)"))
     try ScreenshotTransfer.writeImage(at: fileURL, to: pasteboard)
@@ -2243,6 +2427,10 @@ private func checkLaunchAtLoginPolicy() throws {
 }
 
 do {
+    try checkInstallationFailureRecovery()
+    try checkDecodedImageCache()
+    try checkAnnotationRenderReuse()
+    if CommandLine.arguments.contains("--stress") { try runPerformanceStressChecks() }
     try checkFrozenScreenCrop()
     try checkModels()
     try checkHotKeyFormatting()
@@ -2250,9 +2438,12 @@ do {
     try checkHotKeyStartupFallback()
     try checkHotKeyRegistrationTransaction()
     try checkEditorState()
+    try checkEditorToolOrderPolicy()
+    try checkSelectionSizeLabelPlacement()
     try checkAnnotationDraftBuilder()
     try checkOverlapMatching()
     try checkAutomaticScrollFrameSelection()
+    try checkLargeOverlapMatching()
     try checkScrollFrameSettling()
     try checkScrollCapturePanelPlacement()
     try checkScreenCoordinateTransform()
@@ -2262,6 +2453,7 @@ do {
     try checkScrollCaptureFeedbackPolicy()
     try checkScrollCaptureCoveragePolicy()
     try checkScrollCaptureCoverageRendering()
+    try checkScrollCaptureTrail()
     try checkScrollCapturePreviewCanvas()
     try checkScrollCapturePreviewPlacement()
     try checkScrollCapturePreviewBadge()
@@ -2273,6 +2465,7 @@ do {
     try checkCaptureActivityState()
     try checkCaptureResultOrder()
     try checkImageLoadRequestState()
+    try checkHistoryImageRevisionIndex()
     try checkShelfPreviewDecodePolicy()
     try checkEditorCanvasLayout()
     try checkEditorZoomPolicy()
@@ -2287,6 +2480,7 @@ do {
     try checkShelfPlacementOnSecondaryDisplay()
     try checkCompactShelfMetrics()
     try checkShelfToggleGesturePolicy()
+    try checkScreenshotDragGesturePolicy()
     try checkShelfWindowSizeStorage()
     try checkShelfWindowChromePolicy()
     try checkApplicationInstallation()

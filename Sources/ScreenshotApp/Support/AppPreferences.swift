@@ -27,6 +27,7 @@ final class AppPreferences: ObservableObject {
         static let historyFraction = "historyFraction"
         static let historyFractionRevision = "historyFractionRevision"
         static let shelfTransparency = "shelfTransparency"
+        static let editorToolOrder = "editorToolOrder"
     }
 
     @Published var captureFolder: URL { didSet { defaults.set(captureFolder.path, forKey: Key.folder) } }
@@ -69,6 +70,7 @@ final class AppPreferences: ObservableObject {
             defaults.set(constrained, forKey: Key.shelfTransparency)
         }
     }
+    @Published private(set) var editorToolOrder: [EditorTool]
 
     let availableLetters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
     private let defaults: UserDefaults
@@ -112,10 +114,14 @@ final class AppPreferences: ObservableObject {
         let storedTransparency = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
             ?? Self.defaultShelfTransparency
         shelfTransparency = Self.clampedTransparency(storedTransparency)
+        editorToolOrder = Self.editorTools(
+            from: EditorToolOrderPolicy.normalize(defaults.stringArray(forKey: Key.editorToolOrder) ?? [])
+        )
         defaults.set(maximumCount, forKey: Key.maximumCount)
         defaults.set(historyFraction, forKey: Key.historyFraction)
         defaults.set(Self.currentHistoryFractionRevision, forKey: Key.historyFractionRevision)
         defaults.set(shelfTransparency, forKey: Key.shelfTransparency)
+        defaults.set(editorToolOrder.map(\.rawValue), forKey: Key.editorToolOrder)
     }
 
     var hotKey: HotKey {
@@ -139,6 +145,21 @@ final class AppPreferences: ObservableObject {
         useControl = hotKey.modifiers.contains(.control)
     }
 
+    func moveEditorTool(_ source: EditorTool, onto target: EditorTool) {
+        guard source != target,
+              let sourceIndex = editorToolOrder.firstIndex(of: source),
+              let targetIndex = editorToolOrder.firstIndex(of: target) else { return }
+        let rawOrder = EditorToolOrderPolicy.move(
+            fromOffsets: IndexSet(integer: sourceIndex),
+            toOffset: targetIndex,
+            in: editorToolOrder.map(\.rawValue)
+        )
+        let nextOrder = Self.editorTools(from: rawOrder)
+        guard nextOrder != editorToolOrder else { return }
+        editorToolOrder = nextOrder
+        defaults.set(nextOrder.map(\.rawValue), forKey: Key.editorToolOrder)
+    }
+
     static func defaultCaptureFolder() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let codex = home.appendingPathComponent("Documents/Codex", isDirectory: true)
@@ -151,6 +172,10 @@ final class AppPreferences: ObservableObject {
     private static func clampedTransparency(_ value: Double) -> Double {
         guard value.isFinite else { return defaultShelfTransparency }
         return min(max(value, 0), 1)
+    }
+
+    private static func editorTools(from rawValues: [String]) -> [EditorTool] {
+        rawValues.compactMap { EditorTool(rawValue: $0) }
     }
 
     static let keyCodes: [String: UInt32] = [

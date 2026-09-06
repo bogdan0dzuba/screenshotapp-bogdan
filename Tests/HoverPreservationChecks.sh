@@ -4,12 +4,23 @@ set -euo pipefail
 CONTROLLER="${1:-Sources/ScreenshotApp/Windowing/RegionSelectionController.swift}"
 MODEL="${2:-Sources/ScreenshotApp/Models/AppModel.swift}"
 CAPTURE_SERVICE="${3:-Sources/ScreenshotApp/Services/CaptureService.swift}"
+HOT_KEY="${4:-Sources/ScreenshotApp/Services/GlobalHotKeyService.swift}"
 
 require_text() {
   local file="$1"
   local pattern="$2"
   local failure="$3"
   if ! /usr/bin/grep -Fq "$pattern" "$file"; then
+    echo "HoverPreservationChecks: $failure" >&2
+    exit 1
+  fi
+}
+
+reject_text() {
+  local file="$1"
+  local pattern="$2"
+  local failure="$3"
+  if /usr/bin/grep -Fq -- "$pattern" "$file"; then
     echo "HoverPreservationChecks: $failure" >&2
     exit 1
   fi
@@ -41,6 +52,8 @@ require_order \
   "captureFrozenScreen" \
   "makeKeyAndOrderFront" \
   "selection overlay can still dismiss hover content before the screen is frozen"
+reject_text "$HOT_KEY" 'NSApp.activate()' \
+  "global hotkey activates ScreenshotApp before the frozen frame is captured"
 require_text "$CONTROLLER" "backdropImage:" "selection overlay does not display the frozen screen"
 require_text "$CONTROLLER" "cropFrozenScreen" "selected pixels are recaptured after hover content has disappeared"
 require_text "$MODEL" "firstFrame: selection.image" "scrolling capture ignores the hover-preserving first frame"

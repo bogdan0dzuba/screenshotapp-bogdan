@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     private var activeAreaCaptureTask: Task<Void, Error>?
     private var activeAreaCaptureID: UUID?
     private var restartAreaCaptureAfterCancellation = false
+    private var areaHotKeyAttemptCount = 0
 
     init() {
         let preferences = AppPreferences()
@@ -116,9 +117,7 @@ final class AppModel: ObservableObject {
     }
 
     private func activateHotKey(_ candidateHotKey: HotKey) throws {
-        try hotKeyService.register(candidateHotKey) { [weak self] in
-            DispatchQueue.main.async { self?.capture(.area) }
-        }
+        try hotKeyService.register(candidateHotKey) { [weak self] in self?.handleAreaHotKey() }
         activeHotKey = hotKeyService.registeredHotKey
         if let activeHotKey {
             preferences.setHotKey(activeHotKey)
@@ -148,7 +147,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard let request = prepareCaptureRequest() else {
-            recoverAreaCaptureFromHotKey()
+            statusMessage = "Дождитесь завершения текущего захвата"
             return
         }
         CaptureTelemetry.logger.info("area_capture_started")
@@ -197,6 +196,7 @@ final class AppModel: ObservableObject {
                 if isAreaCapture, activeAreaCaptureID == request.id {
                     activeAreaCaptureTask = nil
                     activeAreaCaptureID = nil
+                    areaHotKeyAttemptCount = 0
                 }
             }
             let capturedAt: Date
@@ -210,6 +210,7 @@ final class AppModel: ObservableObject {
                 cancelCapture(id: request.id)
                 resumeShelfAndPresentPendingResults()
                 if shouldRestart {
+                    areaHotKeyAttemptCount = 1
                     statusMessage = "Повторно открываю выбор области…"
                     captureArea()
                 } else {
@@ -244,16 +245,49 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func handleAreaHotKey() {
+        guard !captureActivity.canStartCapture else {
+            areaHotKeyAttemptCount = 1
+            capture(.area)
+            return
+        }
+
+        guard activeAreaCaptureTask != nil else {
+            statusMessage = "Дождитесь завершения текущего захвата"
+            return
+        }
+
+        areaHotKeyAttemptCount = min(
+            areaHotKeyAttemptCount + 1,
+            AreaCaptureRecoveryPolicy.forcedRecoveryAttemptCount
+        )
+        recoverAreaCaptureFromHotKey()
+    }
+
     private func recoverAreaCaptureFromHotKey() {
-        switch AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: activeAreaCaptureTask != nil) {
+        switch AreaCaptureRecoveryPolicy.action(
+            hasActiveAreaCapture: activeAreaCaptureTask != nil,
+            hotKeyAttemptCount: areaHotKeyAttemptCount
+        ) {
         case .start:
-            CaptureTelemetry.logger.notice("area_capture_ignored_busy")
+            areaHotKeyAttemptCount = 1
+            capture(.area)
+        case .waitForRecovery:
+            let attempts = areaHotKeyAttemptCount
+            CaptureTelemetry.logger.notice(
+                "area_capture_recovery_wait attempts=\(attempts, privacy: .public)"
+            )
+            statusMessage = "Выбор области не отвечает. Нажмите хоткей еще раз для восстановления"
         case .cancelAndRestart:
             guard !restartAreaCaptureAfterCancellation else {
                 CaptureTelemetry.logger.notice("area_capture_restart_already_requested")
                 return
             }
             restartAreaCaptureAfterCancellation = true
+            let attempts = areaHotKeyAttemptCount
+            CaptureTelemetry.logger.notice(
+                "area_capture_recovery_triggered attempts=\(attempts, privacy: .public)"
+            )
             statusMessage = "Перезапускаю выбор области…"
             activeAreaCaptureTask?.cancel()
             let cancelledVisibleSelection = regionSelectionController?.cancelActiveSelection() ?? false
@@ -381,6 +415,11 @@ final class AppModel: ObservableObject {
         panel.allowedContentTypes = preferences.imageFormat == .png ? [.png] : [.jpeg]
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         do {
+            if preferences.imageFormat == .png {
+                try Data(contentsOf: item.imageURL).write(to: destination, options: .atomic)
+                statusMessage = "Сохранено: \(destination.lastPathComponent)"
+                return
+            }
             guard let image = NSImage(contentsOf: item.imageURL),
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -426,8 +465,8 @@ final class AppModel: ObservableObject {
         do {
             try history.delete(item)
             selectedItemID = history.items.first?.id
-            statusMessage = "Перемещено в Корзину"
-        } catch { present(error) }
+            statusMessage = "Удалено"
+        } catch { presentDeletionError(error, item: item) }
     }
 
     func clearHistory() {
@@ -435,7 +474,7 @@ final class AppModel: ObservableObject {
             try history.clearAll()
             selectedItemID = nil
             statusMessage = "История очищена"
-        } catch { present(error) }
+        } catch { presentDeletionError(error) }
     }
 
     func collapseShelf() {
@@ -574,6 +613,23 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Настройки доступа")
         if alert.runModal() == .alertSecondButtonReturn {
             openScreenRecordingSettings()
+        }
+    }
+
+    private func presentDeletionError(_ error: Error, item: CaptureItem? = nil) {
+        statusMessage = error.localizedDescription
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Не удалось удалить скриншот"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "ОК")
+        if let item {
+            alert.addButton(withTitle: "Показать в Finder")
+            if alert.runModal() == .alertSecondButtonReturn {
+                reveal(item)
+            }
+        } else {
+            alert.runModal()
         }
     }
 

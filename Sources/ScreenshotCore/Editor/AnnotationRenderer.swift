@@ -17,6 +17,7 @@ public enum AnnotationRendererError: LocalizedError {
 
 public enum AnnotationRenderer {
     public static func render(baseImage: CGImage, document: EditorDocument) throws -> CGImage {
+        guard !document.annotations.isEmpty else { return baseImage }
         let width = baseImage.width
         let height = baseImage.height
         guard let context = CGContext(

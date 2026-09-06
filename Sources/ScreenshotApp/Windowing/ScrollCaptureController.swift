@@ -40,6 +40,7 @@ final class ScrollCaptureController: ObservableObject {
     private var selectedFirstFrame: CGImage?
     private var frameSettler = ScrollFrameSettler()
     private var previewCanvas = ScrollCapturePreviewCanvas()
+    private var trail = ScrollCaptureTrail()
     private weak var model: AppModel?
     private var panel: NSPanel?
     private var previewPanel: NSPanel?
@@ -86,6 +87,7 @@ final class ScrollCaptureController: ObservableObject {
         classificationFrames.removeAll()
         frameSettler.reset()
         previewCanvas.reset()
+        trail.reset()
         previewImage = nil
         captureGeneration &+= 1
         frameCount = 0
@@ -136,7 +138,7 @@ final class ScrollCaptureController: ObservableObject {
             feedbackOverlay.presentPaused(frameCount: frameCount)
         } else {
             feedbackState = .ready
-            message = "Прокрутите на 1/3 и остановитесь на 0,5 с до зелёной вспышки"
+            message = "Прокрутите на 1/3 и остановитесь на 0,25 с до зелёной вспышки"
             feedbackOverlay.present(state: .ready, frameCount: frameCount)
             startCaptureLoopIfNeeded()
         }
@@ -153,6 +155,7 @@ final class ScrollCaptureController: ObservableObject {
             classificationFrames.removeLast()
         }
         previewCanvas.undoLast()
+        trail.undoLast()
         refreshPreview()
         frameSettler.reset()
         frameCount = session.frames.count
@@ -235,6 +238,7 @@ final class ScrollCaptureController: ObservableObject {
         lockedDirection = nil
         releaseCapturedFrames()
         frameSettler.reset()
+        trail.reset()
         hidePreviewPanel()
         panel?.orderOut(nil)
         panel = nil
@@ -247,6 +251,7 @@ final class ScrollCaptureController: ObservableObject {
     private func releaseCapturedFrames() {
         session = ScrollCaptureSession(frames: [])
         classificationFrames.removeAll()
+        trail.reset()
         selectedFirstFrame = nil
         targetPixelWidth = 0
         targetPixelHeight = 0
@@ -258,24 +263,9 @@ final class ScrollCaptureController: ObservableObject {
         captureService: CaptureService,
         generation: Int
     ) async {
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScreenshotScrollBaseline-\(UUID().uuidString).png")
-        defer {
-            try? FileManager.default.removeItem(at: temporaryURL)
-        }
-
         do {
-            try await captureService.capture(preparedCapture, to: temporaryURL)
+            let cgImage = try await captureService.capture(preparedCapture)
             guard !Task.isCancelled, isCapturing, generation == captureGeneration else { return }
-            guard let image = NSImage(contentsOf: temporaryURL),
-                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                isProcessingFrame = false
-                feedbackState = .needsOverlap
-                message = "Не удалось прочитать первый кадр. Нажмите «Начать» ещё раз"
-                baselineTask = nil
-                feedbackOverlay.presentError(message: "Нажмите «Начать», чтобы повторить")
-                return
-            }
             let targetWidth = targetPixelWidth
             let targetHeight = targetPixelHeight
             let normalizedImage = try await Task.detached(priority: .userInitiated) {
@@ -298,7 +288,7 @@ final class ScrollCaptureController: ObservableObject {
             hasStarted = true
             isProcessingFrame = false
             feedbackState = .ready
-            message = "Первый кадр сохранён ✓ Прокрутите на 1/3 и остановитесь на 0,5 с"
+            message = "Первый кадр сохранён ✓ Прокрутите на 1/3 и остановитесь на 0,25 с"
             baselineTask = nil
             presentLatestCapturedViewport()
             feedbackOverlay.present(state: .ready, frameCount: frameCount)
@@ -318,7 +308,7 @@ final class ScrollCaptureController: ObservableObject {
         captureTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: .milliseconds(360))
+                    try await Task.sleep(for: .milliseconds(220))
                 } catch {
                     return
                 }
@@ -346,18 +336,11 @@ final class ScrollCaptureController: ObservableObject {
 
         captureInFlight = true
         let generation = captureGeneration
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScreenshotScroll-\(UUID().uuidString).png")
-        defer {
-            captureInFlight = false
-            try? FileManager.default.removeItem(at: temporaryURL)
-        }
+        defer { captureInFlight = false }
 
         do {
-            try await model.captureService.capture(preparedCapture, to: temporaryURL)
+            let cgImage = try await model.captureService.capture(preparedCapture)
             guard !Task.isCancelled, isCapturing, generation == captureGeneration,
-                  let image = NSImage(contentsOf: temporaryURL),
-                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
                   let previous = classificationFrames.last else {
                 return
             }
@@ -393,7 +376,7 @@ final class ScrollCaptureController: ObservableObject {
             switch outcome {
             case .unchanged:
                 presentLatestCapturedViewport()
-                message = "Кадров: \(frameCount). Прокрутите на 1/3 и остановитесь на 0,5 с"
+                message = "Кадров: \(frameCount). Прокрутите на 1/3 и остановитесь на 0,25 с"
                 feedbackOverlay.present(state: feedbackState, frameCount: frameCount)
             case let .pending(decision):
                 guard ScrollCaptureDirectionPolicy.accepts(decision, lockedTo: lockedDirection) else {
@@ -406,7 +389,7 @@ final class ScrollCaptureController: ObservableObject {
                 ) {
                     feedbackOverlay.presentCoverage(coverage)
                 }
-                message = "Новый участок найден. Не двигайте 0,5 с до зелёной вспышки"
+                message = "Новый участок найден. Не двигайте 0,25 с до зелёной вспышки"
                 feedbackOverlay.present(state: feedbackState, frameCount: frameCount)
             case let .commit(decision):
                 guard ScrollCaptureDirectionPolicy.accepts(decision, lockedTo: lockedDirection) else {
@@ -417,10 +400,20 @@ final class ScrollCaptureController: ObservableObject {
                 case let .append(overlap):
                     session.add(normalizedImage, direction: .down, overlap: overlap)
                     try? previewCanvas.append(frame: normalizedImage, overlap: overlap)
+                    trail.append(
+                        frameHeight: normalizedImage.height,
+                        overlap: overlap,
+                        captureHeight: rect.height
+                    )
                     lockedDirection = .down
                 case let .prepend(overlap):
                     session.add(normalizedImage, direction: .up, overlap: overlap)
                     try? previewCanvas.prepend(frame: normalizedImage, overlap: overlap)
+                    trail.prepend(
+                        frameHeight: normalizedImage.height,
+                        overlap: overlap,
+                        captureHeight: rect.height
+                    )
                     lockedDirection = .up
                 case .unchanged, .insufficientOverlap:
                     return
@@ -460,7 +453,7 @@ final class ScrollCaptureController: ObservableObject {
             feedbackOverlay.presentSelectionReady()
             return
         }
-        feedbackOverlay.presentCapturedViewport()
+        feedbackOverlay.presentCapturedViewport(trail: trail)
     }
 
     private func presentOverlapRecoveryTarget() {
@@ -741,7 +734,8 @@ private final class ScrollCaptureFeedbackOverlay {
         coverageView?.presentSelectionReady()
     }
 
-    func presentCapturedViewport() {
+    func presentCapturedViewport(trail: ScrollCaptureTrail = .init()) {
+        coverageView?.configure(captureRect: captureRect, screenRect: screenRect, trail: trail)
         coverageView?.presentCapturedViewport()
     }
 

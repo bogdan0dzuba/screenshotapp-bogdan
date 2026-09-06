@@ -2,7 +2,7 @@
 set -euo pipefail
 
 VERSION="${1:-}"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
   echo "Использование: ./script/publish_release.sh 0.5.17" >&2
   exit 2
 fi
@@ -11,7 +11,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/version.sh"
 REPOSITORY="bogdan0dzuba/screenshotapp-bogdan"
 TAG="v$VERSION"
-RELEASE_SPARKLE_BIN_DIR="/private/tmp/ScreenshotApp-Bogdan-release-arm64-$(id -u)/artifacts/sparkle/Sparkle/bin"
 LOCAL_SPARKLE_BIN_DIR="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin"
 DIST_DIR="$ROOT_DIR/dist"
 
@@ -47,7 +46,7 @@ SCREENSHOT_APP_VERSION="$VERSION" \
   "$ROOT_DIR/script/build_release.sh"
 
 SPARKLE_BIN_DIR=""
-for candidate in "$RELEASE_SPARKLE_BIN_DIR" "$LOCAL_SPARKLE_BIN_DIR"; do
+for candidate in "$LOCAL_SPARKLE_BIN_DIR"; do
   if [[ -x "$candidate/generate_keys" && -x "$candidate/generate_appcast" ]]; then
     SPARKLE_BIN_DIR="$candidate"
     break

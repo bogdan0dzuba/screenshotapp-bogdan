@@ -37,9 +37,23 @@ public enum ApplicationInstallPolicy {
     }
 }
 
+public enum ApplicationBundleInstallError: LocalizedError {
+    case recoveryFailed(backupURL: URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .recoveryFailed(backupURL):
+            "Не удалось восстановить предыдущую версию. Резервная копия сохранена: \(backupURL.path)"
+        }
+    }
+}
+
 public enum ApplicationBundleInstaller {
-    public static func install(sourceBundleURL: URL, destinationBundleURL: URL) throws {
-        let fileManager = FileManager.default
+    public static func install(
+        sourceBundleURL: URL,
+        destinationBundleURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
         let parent = destinationBundleURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
 
@@ -48,7 +62,6 @@ public enum ApplicationBundleInstaller {
         let backup = parent.appendingPathComponent(".ScreenshotApp-backup-\(nonce).app", isDirectory: true)
         defer {
             try? fileManager.removeItem(at: staging)
-            try? fileManager.removeItem(at: backup)
         }
 
         try fileManager.copyItem(at: sourceBundleURL, to: staging)
@@ -63,9 +76,15 @@ public enum ApplicationBundleInstaller {
             if hadExistingDestination,
                !fileManager.fileExists(atPath: destinationBundleURL.path),
                fileManager.fileExists(atPath: backup.path) {
-                try? fileManager.moveItem(at: backup, to: destinationBundleURL)
+                do {
+                    try fileManager.moveItem(at: backup, to: destinationBundleURL)
+                } catch {
+                    throw ApplicationBundleInstallError.recoveryFailed(backupURL: backup)
+                }
             }
             throw error
         }
+        // Remove the previous application only after its replacement succeeded.
+        try? fileManager.removeItem(at: backup)
     }
 }

@@ -24,6 +24,10 @@ jobs:
           bash Tests/CapturePerformanceChecks.sh
           bash Tests/HoverPreservationChecks.sh
           bash Tests/CaptureCancellationChecks.sh
+          bash Tests/ScrollCaptureInteractionChecks.sh
+          bash Tests/HistoryDeletionChecks.sh
+          bash Tests/KeyActionLatencyChecks.sh
+          bash Tests/ApplicationInstallationChecks.sh
           bash Tests/ShelfPanelInteractionChecks.sh
           bash Tests/EditorWindowInteractionChecks.sh
           bash Tests/SettingsInteractionChecks.sh

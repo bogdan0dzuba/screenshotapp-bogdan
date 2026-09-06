@@ -173,7 +173,8 @@ struct ShelfView: View {
             updateSplitDividerCursor(isInside: isInside)
         }
         .onDisappear {
-            updateSplitDividerCursor(isInside: false)
+            splitDividerCursorIsActive = false
+            NSCursor.arrow.set()
         }
         .help("Перетащите, чтобы изменить размер истории")
         .accessibilityLabel("Изменить размер истории")
@@ -183,9 +184,9 @@ struct ShelfView: View {
         guard isInside != splitDividerCursorIsActive else { return }
         splitDividerCursorIsActive = isInside
         if isInside {
-            NSCursor.resizeUpDown.push()
+            NSCursor.resizeUpDown.set()
         } else {
-            NSCursor.pop()
+            NSCursor.arrow.set()
         }
     }
 
@@ -238,7 +239,7 @@ struct ShelfView: View {
             .help("Временно скрыть полку")
             Button { model.clearHistory() } label: { Image(systemName: "trash") }
                 .buttonStyle(.plain)
-                .help("Очистить историю и переместить файлы в Корзину")
+                .help("Очистить историю и удалить файлы")
                 .disabled(history.items.isEmpty)
         }
         .padding(.leading, ShelfMetrics.collapsedHorizontalPadding)
@@ -248,7 +249,7 @@ struct ShelfView: View {
 
     private func latest(_ item: CaptureItem) -> some View {
         VStack(spacing: 4) {
-            ZoomableCapturePreview(item: item, revision: history.imageRevision)
+            ZoomableCapturePreview(item: item, revision: history.imageRevision(for: item))
                 .id(item.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .layoutPriority(1)
@@ -283,11 +284,10 @@ struct ShelfView: View {
                     CaptureRow(
                         item: item,
                         isSelected: item.id == selected.id,
-                        revision: history.imageRevision
+                        revision: history.imageRevision(for: item)
                     ) {
                         model.select(item)
                     }
-                    .onDrag { ScreenshotTransfer.itemProvider(for: item.imageURL) }
                     .contextMenu { contextMenu(for: item) }
                 }
             }
@@ -615,11 +615,6 @@ private struct ZoomableCapturePreview: View {
                 }
             }
             .task(id: "\(item.imageURL.path)#\(revision)#\(decodePlan.maximumPixelSize)") {
-                do {
-                    try await Task.sleep(for: .milliseconds(100))
-                } catch {
-                    return
-                }
                 await loader.load(
                     url: item.imageURL,
                     maximumPixelSize: decodePlan.maximumPixelSize,
@@ -704,6 +699,8 @@ private struct CaptureRow: View {
                 Spacer()
                 Image(systemName: "line.3.horizontal")
                     .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 30)
+                    .help("Перетащить снимок из любой точки строки")
             }
             .padding(6)
             .background(
@@ -713,6 +710,93 @@ private struct CaptureRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay {
+            ScreenshotDragSurface(url: item.imageURL, onClick: action)
+        }
+    }
+}
+
+private struct ScreenshotDragSurface: NSViewRepresentable {
+    let url: URL
+    let onClick: () -> Void
+
+    func makeNSView(context: Context) -> ScreenshotDragSurfaceView {
+        let view = ScreenshotDragSurfaceView()
+        view.url = url
+        view.onClick = onClick
+        return view
+    }
+
+    func updateNSView(_ nsView: ScreenshotDragSurfaceView, context: Context) {
+        nsView.url = url
+        nsView.onClick = onClick
+    }
+}
+
+private final class ScreenshotDragSurfaceView: NSView, NSDraggingSource {
+    var url: URL?
+    var onClick: (() -> Void)?
+    private var gestureState: ScreenshotDragGestureState?
+    private var didStartDragging = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        gestureState = ScreenshotDragGestureState(
+            start: convert(event.locationInWindow, from: nil)
+        )
+        didStartDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard var gestureState else { return }
+        let currentLocation = convert(event.locationInWindow, from: nil)
+        gestureState.update(to: currentLocation)
+        self.gestureState = gestureState
+        guard !didStartDragging,
+              gestureState.didDrag,
+              let url,
+              let pasteboardItem = ScreenshotTransfer.pasteboardItem(for: url) else {
+            return
+        }
+
+        didStartDragging = true
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(
+            bounds,
+            contents: NSWorkspace.shared.icon(forFile: url.path)
+        )
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let gestureState = self.gestureState
+        self.gestureState = nil
+        didStartDragging = false
+        if gestureState?.shouldClickOnRelease == true {
+            onClick?()
+        }
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        .copy
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        gestureState = nil
+        didStartDragging = false
     }
 }
 
@@ -750,6 +834,11 @@ private final class ShelfToggleDragView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
     override func mouseDown(with event: NSEvent) {
         gestureState = ShelfToggleGestureState(start: NSEvent.mouseLocation)
         initialWindowOrigin = window?.frame.origin
@@ -785,6 +874,11 @@ private final class ShelfToggleDragView: NSView {
 
 private final class ShelfWindowDragView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .arrow)
+    }
 
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)

@@ -3,9 +3,9 @@ import ScreenshotCore
 import SwiftUI
 
 enum EditorTool: String, CaseIterable, Identifiable {
+    case rectangle
     case arrow
     case line
-    case rectangle
     case ellipse
     case pencil
     case highlighter
@@ -53,7 +53,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
 final class EditorSession: ObservableObject {
     @Published private(set) var state: EditorState
     @Published private(set) var preview: NSImage
-    @Published var tool: EditorTool = .arrow
+    @Published var tool: EditorTool = .rectangle
     @Published var color: RGBAColor = .red
     @Published var lineWidth = 5.0
     @Published var fontSize = 28.0
@@ -63,6 +63,7 @@ final class EditorSession: ObservableObject {
     let windowImageSize: CGSize
     private unowned let model: AppModel
     private let baseImage: CGImage
+    private var renderCache: AnnotationRenderCache
     private var nextCounter: Int
 
     init?(item: CaptureItem, model: AppModel) {
@@ -74,6 +75,7 @@ final class EditorSession: ObservableObject {
         self.windowImageSize = image.size
         self.model = model
         self.baseImage = cgImage
+        self.renderCache = AnnotationRenderCache(baseImage: cgImage)
         self.state = EditorState(document: document)
         self.preview = NSImage(
             cgImage: cgImage,
@@ -152,7 +154,7 @@ final class EditorSession: ObservableObject {
     @discardableResult
     func save() -> Bool {
         do {
-            let rendered = try AnnotationRenderer.render(baseImage: baseImage, document: state.document)
+            let rendered = try renderCache.image(for: state.document)
             try model.history.saveRendered(rendered, document: state.document, for: item)
             model.statusMessage = "Правки сохранены"
             return true
@@ -174,7 +176,7 @@ final class EditorSession: ObservableObject {
     }
 
     private func refreshPreview() {
-        if let rendered = try? AnnotationRenderer.render(baseImage: baseImage, document: state.document) {
+        if let rendered = try? renderCache.image(for: state.document) {
             preview = NSImage(
                 cgImage: rendered,
                 size: CGSize(width: rendered.width, height: rendered.height)

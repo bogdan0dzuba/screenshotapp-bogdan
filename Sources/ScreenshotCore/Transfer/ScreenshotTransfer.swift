@@ -15,11 +15,24 @@ public enum ScreenshotTransferError: LocalizedError {
 }
 
 public enum ScreenshotTransfer {
+    public static func pasteboardItem(for url: URL) -> NSPasteboardItem? {
+        guard let pngData = try? Data(contentsOf: url),
+              let image = NSImage(data: pngData),
+              let tiffData = image.tiffRepresentation else {
+            return nil
+        }
+
+        let item = NSPasteboardItem()
+        item.setData(pngData, forType: .png)
+        item.setData(tiffData, forType: .tiff)
+        item.setString(url.absoluteString, forType: .fileURL)
+        return item
+    }
+
     public static func writeImage(at url: URL, to pasteboard: NSPasteboard) throws {
-        guard let image = NSImage(contentsOf: url),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+        let pngData = try Data(contentsOf: url)
+        guard let image = NSImage(data: pngData),
+              let tiffData = image.tiffRepresentation else {
             throw ScreenshotTransferError.unreadableImage
         }
 

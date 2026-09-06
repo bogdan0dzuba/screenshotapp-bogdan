@@ -22,8 +22,10 @@ case "$SIGNING_IDENTITY_MODE" in
     ;;
 esac
 
-DIST_DIR="$ROOT_DIR/dist"
-STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-release-stage-$(id -u)"
+DIST_DIR="${SCREENSHOT_APP_DIST_DIR:-$ROOT_DIR/dist}"
+RELEASE_WORK_DIR="$(mktemp -d /private/tmp/ScreenshotApp-Bogdan-release.XXXXXX)"
+trap '/bin/rm -rf -- "$RELEASE_WORK_DIR"' EXIT
+STAGE_DIR="$RELEASE_WORK_DIR/stage"
 APP_BUNDLE="$STAGE_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -32,15 +34,15 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$BUILD_PRODUCT"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON_SOURCE="$ROOT_DIR/Assets/AppIcon.icns"
-ARM_BUILD_DIR="/private/tmp/ScreenshotApp-Bogdan-release-arm64-$(id -u)"
-INTEL_BUILD_DIR="/private/tmp/ScreenshotApp-Bogdan-release-x86_64-$(id -u)"
-BUILD_CACHE_DIR="/private/tmp/ScreenshotApp-Bogdan-release-cache-$(id -u)"
+ARM_BUILD_DIR="$RELEASE_WORK_DIR/arm64"
+INTEL_BUILD_DIR="$RELEASE_WORK_DIR/x86_64"
+BUILD_CACHE_DIR="$RELEASE_WORK_DIR/cache"
 ARCHIVE_NAME="ScreenshotApp-Bogdan-macOS-Universal.zip"
 DELIVERABLE_ZIP="$DIST_DIR/$ARCHIVE_NAME"
 CHECKSUM_FILE="$DELIVERABLE_ZIP.sha256"
 DMG_NAME="ScreenshotApp-Bogdan-macOS-Universal.dmg"
 DELIVERABLE_DMG="$DIST_DIR/$DMG_NAME"
-DMG_STAGE_DIR="/private/tmp/ScreenshotApp-Bogdan-dmg-stage-$(id -u)"
+DMG_STAGE_DIR="$RELEASE_WORK_DIR/dmg"
 
 prepare_swift_environment() {
   mkdir -p "$BUILD_CACHE_DIR/clang" "$BUILD_CACHE_DIR/swiftpm"
@@ -114,6 +116,12 @@ bash "$ROOT_DIR/Tests/CaptureMetadataChecks.sh"
 bash "$ROOT_DIR/Tests/CapturePerformanceChecks.sh"
 bash "$ROOT_DIR/Tests/HoverPreservationChecks.sh"
 bash "$ROOT_DIR/Tests/CaptureCancellationChecks.sh"
+bash "$ROOT_DIR/Tests/ScrollCaptureInteractionChecks.sh"
+bash "$ROOT_DIR/Tests/EditorWindowInteractionChecks.sh"
+bash "$ROOT_DIR/Tests/SettingsInteractionChecks.sh"
+bash "$ROOT_DIR/Tests/HistoryDeletionChecks.sh"
+bash "$ROOT_DIR/Tests/KeyActionLatencyChecks.sh"
+bash "$ROOT_DIR/Tests/RepositoryPublicationChecks.sh"
 bash "$ROOT_DIR/Tests/ShelfPanelInteractionChecks.sh"
 bash "$ROOT_DIR/Tests/SettingsWindowChecks.sh"
 bash "$ROOT_DIR/Tests/AppIdentityChecks.sh"
@@ -131,6 +139,9 @@ mkdir -p "$DIST_DIR" "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 
 build_architecture "arm64-apple-macosx14.0" "$ARM_BUILD_DIR"
 build_architecture "x86_64-apple-macosx14.0" "$INTEL_BUILD_DIR"
+
+# Execute behavioral checks on the host before distributing either architecture.
+swift run --disable-sandbox --configuration release CoreChecks
 
 ARM_BINARY="$ARM_BUILD_DIR/arm64-apple-macosx/release/$BUILD_PRODUCT"
 INTEL_BINARY="$INTEL_BUILD_DIR/x86_64-apple-macosx/release/$BUILD_PRODUCT"

@@ -68,14 +68,20 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         window.title = "Редактор снимка"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.contentMinSize = CGSize(
+        let minimumContentSize = CGSize(
             width: CGFloat(EditorWindowLayout.minimumContentSize.width),
             height: CGFloat(EditorWindowLayout.minimumContentSize.height)
         )
+        window.contentMinSize = minimumContentSize
         window.contentView = NSHostingView(rootView: EditorView(
             session: session,
+            preferences: model.preferences,
             copyAction: { [weak self] in self?.copySession(item.id) }
         ))
+        window.minSize = NSWindow.frameRect(
+            forContentRect: CGRect(origin: .zero, size: minimumContentSize),
+            styleMask: window.styleMask
+        ).size
         window.delegate = self
         if let visibleFrame = screen?.visibleFrame {
             window.setFrameOrigin(CGPoint(

@@ -61,10 +61,19 @@ final class RegionSelectionController {
         panel.onCancel = { [weak self] in self?.finish(.failure(CaptureError.cancelled)) }
         panel.contentView = overlay
         self.panel = panel
-        NSApp.activate(ignoringOtherApps: true)
+        panel.orderFrontRegardless()
+        NSApp.activate()
+        focusPendingOverlayIfNeeded()
+        CaptureTelemetry.logger.info("selection_overlay_presented")
+    }
+
+    func focusPendingOverlayIfNeeded() {
+        guard let panel,
+              let overlay = panel.contentView as? SelectionOverlayView else { return }
+        panel.orderFrontRegardless()
+        guard NSApp.isActive else { return }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(overlay)
-        CaptureTelemetry.logger.info("selection_overlay_presented")
     }
 
     private func complete(localRect: CGRect) {
@@ -177,7 +186,7 @@ private final class SelectionOverlayView: NSView {
         let outline = NSBezierPath(roundedRect: selectionRect, xRadius: 3, yRadius: 3)
         outline.lineWidth = 2
         outline.stroke()
-        drawSizeLabel()
+        drawSizeLabel(near: currentPoint ?? selectionRect.origin)
     }
 
     private func drawBackdrop() {
@@ -213,7 +222,7 @@ private final class SelectionOverlayView: NSView {
         value.draw(at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2))
     }
 
-    private func drawSizeLabel() {
+    private func drawSizeLabel(near pointer: CGPoint) {
         let text = "\(Int(selectionRect.width)) × \(Int(selectionRect.height))"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
@@ -221,10 +230,12 @@ private final class SelectionOverlayView: NSView {
             .backgroundColor: NSColor.black.withAlphaComponent(0.8),
         ]
         let value = NSAttributedString(string: "  \(text)  ", attributes: attributes)
-        let y = selectionRect.maxY + 6 + value.size().height < bounds.maxY
-            ? selectionRect.maxY + 6
-            : max(6, selectionRect.minY - value.size().height - 6)
-        value.draw(at: CGPoint(x: selectionRect.minX, y: y))
+        let origin = SelectionSizeLabelPlacement.origin(
+            near: pointer,
+            labelSize: value.size(),
+            in: bounds
+        )
+        value.draw(at: origin)
     }
 }
 

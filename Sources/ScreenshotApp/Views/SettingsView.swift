@@ -231,7 +231,7 @@ struct SettingsView: View {
             Section("Приватность") {
                 Label("Без облака и аккаунта", systemImage: "icloud.slash")
                 Label("OCR выполняется на Mac", systemImage: "lock.shield")
-                Label("Удаление отправляет файлы в Корзину", systemImage: "trash")
+                Label("Удаляются только файлы выбранного снимка", systemImage: "trash")
             }
         }
         .formStyle(.grouped)

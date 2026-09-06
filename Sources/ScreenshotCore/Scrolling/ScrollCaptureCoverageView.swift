@@ -3,6 +3,9 @@ import AppKit
 public final class ScrollCaptureCoverageView: NSView {
     private var presentation = ScrollCaptureOverlayPresentation.selectionReady
     private var captureBounds: CGRect?
+    private var screenBounds = CGRect.zero
+    private var trail = ScrollCaptureTrail()
+    private var hasAcceptedViewport = false
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -20,25 +23,31 @@ public final class ScrollCaptureCoverageView: NSView {
         needsDisplay = true
     }
 
-    /// За пределами рамки не рисуется ничего: прогресс показывает панель-рельс,
-    /// а страница, которую пользователь читает и прокручивает, остаётся открытой.
-    public func configure(captureRect: CGRect, screenRect: CGRect) {
+    public func configure(
+        captureRect: CGRect,
+        screenRect: CGRect,
+        trail: ScrollCaptureTrail = .init()
+    ) {
         captureBounds = captureRect.offsetBy(dx: -screenRect.minX, dy: -screenRect.minY)
+        self.screenBounds = CGRect(origin: .zero, size: screenRect.size)
+        self.trail = trail
         needsDisplay = true
     }
 
     public func presentSelectionReady() {
         presentation = .selectionReady
+        hasAcceptedViewport = false
         needsDisplay = true
     }
 
     public func presentCapturedViewport() {
         presentation = .captured
+        hasAcceptedViewport = true
         needsDisplay = true
     }
 
     public func presentNeedsOverlap() {
-        presentation = .needsOverlap
+        presentation = hasAcceptedViewport ? .captured : .needsOverlap
         needsDisplay = true
     }
 
@@ -46,6 +55,18 @@ public final class ScrollCaptureCoverageView: NSView {
         super.draw(dirtyRect)
         guard bounds.width > 0, bounds.height > 0 else { return }
         let drawingBounds = captureBounds ?? bounds
+        let trailRects = trail.externalRects(
+            captureRect: drawingBounds,
+            screenRect: screenBounds.width > 0 ? screenBounds : bounds
+        )
+        for trailRect in trailRects {
+            NSColor.systemOrange.withAlphaComponent(0.24).setFill()
+            trailRect.fill()
+            NSColor.systemOrange.withAlphaComponent(0.86).setStroke()
+            let outline = NSBezierPath(rect: trailRect.insetBy(dx: 1, dy: 1))
+            outline.lineWidth = 2
+            outline.stroke()
+        }
         let layout = ScrollCaptureOverlayLayout.layout(
             in: drawingBounds,
             presentation: presentation

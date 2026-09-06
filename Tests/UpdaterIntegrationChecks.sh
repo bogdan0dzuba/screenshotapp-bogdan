@@ -54,8 +54,8 @@ require_text script/publish_release.sh 'generate_keys' \
   "local release script does not read the Sparkle key from macOS Keychain"
 require_text script/publish_release.sh 'generate_appcast' \
   "local release script does not sign the update feed"
-require_text script/publish_release.sh 'ScreenshotApp-Bogdan-release-arm64-$(id -u)/artifacts/sparkle/Sparkle/bin' \
-  "fresh-clone release cannot find Sparkle tools in the architecture scratch build"
+require_text script/publish_release.sh 'LOCAL_SPARKLE_BIN_DIR="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin"' \
+  "release cannot find Sparkle tools retained by the CoreChecks build"
 require_text script/publish_release.sh 'APPCAST_INPUT_DIR' \
   "appcast generation is not isolated from stale local archives"
 require_text script/publish_release.sh 'gh release create' \
@@ -154,6 +154,7 @@ BUILD_LOG="$TEMP_DIR/build.log"
 run_publish_wiring_case() {
   local expected_candidate="$1"
   local supplied_candidate="$2"
+  local version="${3:-0.5.25}"
   local output_file="$TEMP_DIR/publish-$expected_candidate.log"
   local status
 
@@ -163,7 +164,7 @@ run_publish_wiring_case() {
     SCREENSHOT_APP_TEST_CANDIDATE_LOG="$CANDIDATE_LOG" \
     SCREENSHOT_APP_TEST_APPCAST_LOG="$APPCAST_LOG" \
     SCREENSHOT_APP_TEST_BUILD_LOG="$BUILD_LOG" \
-    /bin/bash "$PUBLISH_ROOT/script/publish_release.sh" 0.5.25 \
+    /bin/bash "$PUBLISH_ROOT/script/publish_release.sh" "$version" \
     >"$output_file" 2>&1; then
     status=0
   else
@@ -191,5 +192,6 @@ run_publish_wiring_case() {
 
 run_publish_wiring_case "39" ""
 run_publish_wiring_case "45" "45"
+run_publish_wiring_case "40" "40" "5.50"
 
 echo "UpdaterIntegrationChecks: OK"

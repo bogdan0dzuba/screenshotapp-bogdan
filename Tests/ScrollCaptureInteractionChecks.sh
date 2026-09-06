@@ -40,7 +40,7 @@ require_text "$CONTROLLER" "ScrollCapturePanelPlacement.frame" "the control HUD 
 require_text "$CONTROLLER" "panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)" "the dimming overlay can cover the Start and Done controls"
 require_text "$CONTROLLER" "outsideShadePanels" "screen outside the selected scroll area is not dimmed"
 require_text "$CONTROLLER" "ScrollCaptureCoverageView" "captured and pending portions have no persistent visual mask"
-reject_text "$COVERAGE_VIEW" "externalTrailRects" "the overlay paints the page outside the selection again instead of using the preview rail"
+require_text "$COVERAGE_VIEW" "externalRects" "accepted scroll progress has no visible external trail"
 require_text "$CONTROLLER" "ScrollCapturePreviewCanvas" "the accepted content has no growing preview of the real stitch"
 require_text "$CONTROLLER" "previewPanel" "the growing stitch has no rail panel beside the selection"
 require_text "$CONTROLLER" "ScrollCapturePreviewPlacement.frame" "the preview rail is not anchored beside the selected area"

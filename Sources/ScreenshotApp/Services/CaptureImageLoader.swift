@@ -4,12 +4,31 @@ import Foundation
 import ImageIO
 import ScreenshotCore
 
+private struct CaptureImageCacheKey: Hashable, Sendable {
+    let path: String
+    let maximumPixelSize: Int?
+    let revision: Int
+}
+
 private actor CaptureImageDecodeQueue {
-    func decode(url: URL, maximumPixelSize: Int?) -> CGImage? {
+    private var cached = DecodedImageCache<CaptureImageCacheKey>()
+
+    func decode(url: URL, maximumPixelSize: Int?, revision: Int) -> CGImage? {
         guard !Task.isCancelled else { return nil }
+        let key = CaptureImageCacheKey(
+            path: url.standardizedFileURL.path,
+            maximumPixelSize: maximumPixelSize,
+            revision: revision
+        )
+        if let cachedImage = cached.image(for: key) {
+            return cachedImage
+        }
+        cached.removeAll { $0.path == key.path && $0.revision != revision }
+
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
 
+        let decoded: CGImage?
         if let maximumPixelSize {
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -17,11 +36,15 @@ private actor CaptureImageDecodeQueue {
                 kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
                 kCGImageSourceShouldCacheImmediately: true,
             ]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        } else {
+            let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+            decoded = CGImageSourceCreateImageAtIndex(source, 0, options)
         }
 
-        let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-        return CGImageSourceCreateImageAtIndex(source, 0, options)
+        guard !Task.isCancelled, let decoded else { return nil }
+        cached.insert(decoded, for: key)
+        return decoded
     }
 }
 
@@ -47,7 +70,8 @@ final class CaptureImageLoader: ObservableObject {
 
         let decoded = await captureImageDecodeQueue.decode(
             url: url,
-            maximumPixelSize: maximumPixelSize
+            maximumPixelSize: maximumPixelSize,
+            revision: revision
         )
         guard !Task.isCancelled else {
             requestState.cancel(token)

@@ -37,10 +37,15 @@ require_text "$RELEASE_BUILD" 'APP_NAME="Богдан Скриншот"' \
   "release app bundle still uses the old name"
 require_text "$LOCAL_BUILD" 'CFBundleIconFile' \
   "local app bundle does not declare an icon"
-require_text "$VERSION_FILE" 'SCREENSHOT_APP_CURRENT_VERSION="0.5.25"' \
-  "local app bundle does not expose the current development version"
-require_text "$VERSION_FILE" 'SCREENSHOT_APP_CURRENT_BUILD_NUMBER="39"' \
-  "local app bundle does not expose the current development build"
+source "$VERSION_FILE"
+[[ "$SCREENSHOT_APP_CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || {
+  echo "AppIdentityChecks: invalid application version" >&2
+  exit 1
+}
+[[ "$SCREENSHOT_APP_CURRENT_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+  echo "AppIdentityChecks: invalid application build number" >&2
+  exit 1
+}
 require_text "$LOCAL_BUILD" 'source "$ROOT_DIR/script/version.sh"' \
   "local packaging does not consume the shared version source"
 require_text "$RELEASE_BUILD" 'source "$ROOT_DIR/script/version.sh"' \

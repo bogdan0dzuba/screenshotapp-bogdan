@@ -161,14 +161,18 @@ struct CaptureService: Sendable {
         )
     }
 
-    func capture(_ prepared: PreparedScrollCapture, to outputURL: URL) async throws {
-        try? FileManager.default.removeItem(at: outputURL)
+    func capture(_ prepared: PreparedScrollCapture) async throws -> CGImage {
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: prepared.contentFilter,
             configuration: prepared.configuration
         )
-        try Self.writePNG(image, to: outputURL)
         CaptureTelemetry.logger.info("filtered_scroll_region_capture_finished")
+        return image
+    }
+
+    func capture(_ prepared: PreparedScrollCapture, to outputURL: URL) async throws {
+        let image = try await capture(prepared)
+        try Self.writePNG(image, to: outputURL)
     }
 
     private static func writePNG(_ image: CGImage, to outputURL: URL) throws {
