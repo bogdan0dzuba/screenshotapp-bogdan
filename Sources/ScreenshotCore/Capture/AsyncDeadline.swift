@@ -1,7 +1,11 @@
 import Foundation
 
-public enum AsyncDeadlineError: Error, Equatable, Sendable {
+public enum AsyncDeadlineError: LocalizedError, Equatable, Sendable {
     case timedOut
+
+    public var errorDescription: String? {
+        "macOS не ответила вовремя при подготовке снимка. Повторите захват; если ошибка повторяется, проверьте разрешение «Запись экрана»."
+    }
 }
 
 public enum AsyncDeadline {
@@ -11,12 +15,17 @@ public enum AsyncDeadline {
             @escaping @Sendable (Result<Value, Error>) -> Void
         ) -> Void
     ) async throws -> Value {
-        try await withCheckedThrowingContinuation { continuation in
-            let resolution = DeadlineResolution(continuation)
-            start { result in resolution.resolve(result) }
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                resolution.resolve(.failure(AsyncDeadlineError.timedOut))
+        let resolution = DeadlineResolution<Value>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard resolution.register(continuation) else { return }
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                    resolution.resolve(.failure(AsyncDeadlineError.timedOut))
+                }
+                start { result in resolution.resolve(result) }
             }
+        } onCancel: {
+            resolution.resolve(.failure(CancellationError()))
         }
     }
 }
@@ -24,13 +33,24 @@ public enum AsyncDeadline {
 private final class DeadlineResolution<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Error>?
+    private var result: Result<Value, Error>?
 
-    init(_ continuation: CheckedContinuation<Value, Error>) {
+    func register(_ continuation: CheckedContinuation<Value, Error>) -> Bool {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+            return false
+        }
         self.continuation = continuation
+        lock.unlock()
+        return true
     }
 
     func resolve(_ result: Result<Value, Error>) {
         lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
         let continuation = continuation
         self.continuation = nil
         lock.unlock()

@@ -8,6 +8,7 @@ if [[ -f "$RELEASE_ROOT/script/version.sh" ]]; then
   source "$RELEASE_ROOT/script/version.sh"
 fi
 EXPECTED_VERSION="${SCREENSHOT_APP_VERSION:-${SCREENSHOT_APP_CURRENT_VERSION:-0.5.17}}"
+EXPECTED_APP_NAME="${SCREENSHOT_APP_DISPLAY_NAME:-Скриншутер}"
 
 require_script() {
   local pattern="$1"
@@ -19,9 +20,11 @@ require_script() {
 }
 
 require_script "arm64-apple-macosx14.0" "release does not build Apple Silicon"
-require_script "x86_64-apple-macosx14.0" "release does not build Intel"
-require_script "/usr/bin/lipo -create" "release does not combine both architectures"
-require_script "/usr/bin/lipo -archs" "release does not verify the universal binary"
+if /usr/bin/grep -Fq 'build_architecture "x86_64' "$RELEASE_SCRIPT"; then
+  echo "ReleasePackagingChecks: Intel builds are no longer maintained" >&2
+  exit 1
+fi
+require_script "/usr/bin/lipo -archs" "release does not verify the ARM binary"
 require_script "/usr/bin/codesign --verify" "release does not verify the app signature"
 require_script "/usr/bin/ditto -c -k" "release is not packaged as a macOS ZIP"
 require_script "/usr/bin/hdiutil create" "release has no normal macOS disk image installer"
@@ -49,7 +52,7 @@ if [[ -n "$ARCHIVE" ]]; then
   trap '/bin/rm -rf -- "$VERIFY_DIR"' EXIT
   /usr/bin/ditto -x -k "$ARCHIVE" "$VERIFY_DIR"
 
-  APP_PATH="$VERIFY_DIR/Богдан Скриншот.app"
+  APP_PATH="$VERIFY_DIR/$EXPECTED_APP_NAME.app"
   BINARY="$APP_PATH/Contents/MacOS/ScreenshotApp"
   [[ -x "$BINARY" ]] || {
     echo "ReleasePackagingChecks: app executable is missing" >&2
@@ -57,8 +60,8 @@ if [[ -n "$ARCHIVE" ]]; then
   }
 
   ARCHS="$(/usr/bin/lipo -archs "$BINARY")"
-  [[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" x86_64 "* ]] || {
-    echo "ReleasePackagingChecks: expected arm64 and x86_64, got: $ARCHS" >&2
+  [[ "$ARCHS" == "arm64" ]] || {
+    echo "ReleasePackagingChecks: expected arm64, got: $ARCHS" >&2
     exit 1
   }
   /usr/bin/codesign --verify --deep --strict "$APP_PATH"
@@ -71,7 +74,7 @@ if [[ -n "$ARCHIVE" ]]; then
     ROOT_DIR="$(cd "$(dirname "$RELEASE_SCRIPT")/.." && pwd)"
     bash "$ROOT_DIR/Tests/SigningChecks.sh" "$APP_PATH"
   fi
-  [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw "$APP_PATH/Contents/Info.plist")" == "Богдан Скриншот" ]] || {
+  [[ "$(/usr/bin/plutil -extract CFBundleDisplayName raw "$APP_PATH/Contents/Info.plist")" == "$EXPECTED_APP_NAME" ]] || {
     echo "ReleasePackagingChecks: public app name is incorrect" >&2
     exit 1
   }

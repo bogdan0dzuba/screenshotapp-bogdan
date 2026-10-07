@@ -36,6 +36,7 @@ final class SystemContentCaptureController {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
+                NSApp.activate()
                 picker.present(using: window ? .window : .display)
             }
         } onCancel: {

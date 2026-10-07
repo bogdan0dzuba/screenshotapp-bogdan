@@ -39,7 +39,8 @@ public enum ScreenshotTransfer {
         let item = NSPasteboardItem()
         item.setData(pngData, forType: .png)
         item.setData(tiffData, forType: .tiff)
-        item.setString(url.absoluteString, forType: .fileURL)
+        // Copy an image, not a local file reference. Remote clipboard bridges
+        // can prioritize file URLs over bitmap data. Keep file URLs for dragging.
 
         pasteboard.clearContents()
         guard pasteboard.writeObjects([item]) else {

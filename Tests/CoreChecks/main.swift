@@ -1095,6 +1095,20 @@ private func checkCaptureCompletionPolicy() throws {
 }
 
 private func checkAreaCaptureRecoveryPolicy() throws {
+    for attempts in [1, 2] {
+        try expect(AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: true,
+                                                  hotKeyAttemptCount: attempts,
+                                                  hasPendingSelection: true) == .refocus,
+                   "a live selection regains focus immediately without cancelling the chosen region")
+    }
+
+    for attempts in [3, 4] {
+        try expect(AreaCaptureRecoveryPolicy.action(hasActiveAreaCapture: true,
+                                                  hotKeyAttemptCount: attempts,
+                                                  hasPendingSelection: true) == .cancelAndRestart,
+                   "repeated refocus must retain the forced recovery escape hatch")
+    }
+
     try expect(
         AreaCaptureRecoveryPolicy.action(
             hasActiveAreaCapture: false,
@@ -2061,10 +2075,11 @@ private func checkScreenshotTransferPayloads() throws {
     let types = Set(pasteboard.types ?? [])
     try expect(types.contains(.png), "clipboard provides PNG")
     try expect(types.contains(.tiff), "clipboard provides TIFF")
-    try expect(types.contains(.fileURL), "clipboard provides file URL")
+    try expect(!types.contains(.fileURL), "image copy must not advertise a local file to remote clipboard bridges")
+    try expect(pasteboard.data(forType: .png) == pngData, "clipboard preserves original PNG bytes")
     try expect(NSImage(pasteboard: pasteboard) != nil, "clipboard image can be pasted by AppKit applications")
     let pastedURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]
-    try expect(pastedURLs?.first == fileURL, "clipboard file URL can be pasted by file-based applications")
+    try expect(pastedURLs?.isEmpty != false, "image copy is not interpreted as file transfer")
 
     let provider = ScreenshotTransfer.itemProvider(for: fileURL)
     try expect(provider.hasItemConformingToTypeIdentifier(UTType.png.identifier), "drag provider supplies PNG file")

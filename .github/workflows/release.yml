@@ -1,4 +1,4 @@
-name: Проверка Universal-сборки
+name: Проверка ARM-сборки
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  universal-macos:
+  arm64-macos:
     runs-on: macos-15
     steps:
       - name: Получить исходники
@@ -17,6 +17,9 @@ jobs:
         run: |
           swift build --disable-sandbox --product CoreChecks
           .build/debug/CoreChecks
+          swift run --disable-sandbox ReliabilityChecks
+          bash Tests/HotKeyRegistrationChecks.sh
+          bash Tests/SelectionFocusChecks.sh
 
       - name: Проверить интерфейсные контракты
         run: |
@@ -46,7 +49,7 @@ jobs:
           echo "SCREENSHOT_APP_VERSION=$SCREENSHOT_APP_CURRENT_VERSION" >> "$GITHUB_ENV"
           echo "SCREENSHOT_APP_BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
-      - name: Собрать Universal-приложение
+      - name: Собрать приложение для Apple Silicon
         env:
           SCREENSHOT_APP_SIGNING_IDENTITY_MODE: --ci-adhoc
         run: ./script/build_release.sh

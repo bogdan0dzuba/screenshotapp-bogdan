@@ -30,6 +30,10 @@ reject_text() {
 
 require_text "$REGION" 'KeyableSelectionPanel(' \
   "selection overlay uses a borderless panel that cannot receive Escape"
+require_text "$REGION" '.nonactivatingPanel' "selection requires app activation"
+require_text "$REGION" 'panel.hidesOnDeactivate = false' "selection disappears when another app becomes active"
+require_text "$REGION" 'override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }' \
+  "selection discards the first drag while its app is inactive"
 require_text "$REGION" 'override var canBecomeKey: Bool { true }' \
   "selection overlay cannot become the key window"
 require_text "$REGION" 'override func cancelOperation(_ sender: Any?)' \
@@ -67,4 +71,16 @@ require_text "$SCROLL" 'panel.onCancel = ' \
 require_text "$SCROLL_VIEW" '.onExitCommand { controller.cancel() }' \
   "Escape does not cancel an active scrolling capture"
 
+# Both success and final cleanup must reset only their own session's restart flag.
+python3 - "$MODEL" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+start = text.index('private func finishCapture(')
+end = text.index('private func handleAreaHotKey()', start)
+finish = text[start:end]
+owned_reset = 'if isAreaCapture, activeAreaCaptureID == request.id {\n                    restartAreaCaptureAfterCancellation = false'
+assert finish.count(owned_reset) == 2, 'success and cleanup must clear only their own restart flag'
+refocus = text[text.index('case .refocus:'):text.index('case .waitForRecovery:')]
+assert 'areaHotKeyAttemptCount = 1' not in refocus, 'refocus must preserve forced recovery attempts'
+PY
 echo "CaptureCancellationChecks: OK"

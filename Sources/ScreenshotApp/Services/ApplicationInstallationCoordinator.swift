@@ -9,7 +9,7 @@ final class ApplicationInstallationCoordinator {
         self.homeDirectory = homeDirectory
     }
 
-    func offerInstallationIfNeeded() -> Bool {
+    func offerInstallationIfNeeded(onLaunchFailure: @escaping @MainActor () -> Void) -> Bool {
         let sourceBundleURL = Bundle.main.bundleURL
         guard !ApplicationInstallPolicy.isInstalled(
             bundleURL: sourceBundleURL,
@@ -19,7 +19,7 @@ final class ApplicationInstallationCoordinator {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Установить «Богдан Скриншот»?"
+        alert.messageText = "Установить «\(AppIdentity.displayName)»?"
         alert.informativeText = "Приложение будет скопировано в вашу папку «Программы» и запущено оттуда."
         alert.addButton(withTitle: "Установить")
         alert.addButton(withTitle: "Не сейчас")
@@ -53,6 +53,7 @@ final class ApplicationInstallationCoordinator {
             Task { @MainActor in
                 if let error {
                     self.showFailure("Приложение установлено, но не удалось его открыть: \(error.localizedDescription)")
+                    onLaunchFailure()
                     return
                 }
                 if let cleanupURL = ApplicationInstallPolicy.cleanupCandidate(
