@@ -4,6 +4,11 @@ import ScreenshotCore
 private actor StartSignal {
     var signalled = false
     func mark() { signalled = true }
+    private var completion: (@Sendable (Result<Int, Error>) -> Void)?
+    func store(_ completion: @escaping @Sendable (Result<Int, Error>) -> Void) {
+        self.completion = completion
+    }
+    func completeLate() { completion?(.success(1)) }
 }
 
 @main
@@ -18,12 +23,14 @@ struct ReliabilityChecks {
             done(.success(9)) // Duplicate callbacks must not resume twice.
         }
         try require(immediate == 7, "first completion wins")
+        let lateCompletion = StartSignal()
         do {
             let _: Int = try await AsyncDeadline.value(timeout: 0.02) { done in
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { done(.success(1)) }
+                Task { await lateCompletion.store(done) }
             }
             throw NSError(domain: "missing timeout", code: 1)
         } catch AsyncDeadlineError.timedOut { }
+        await lateCompletion.completeLate() // A callback after timeout must not resume again.
         let started = StartSignal()
         let waiting = Task {
             let _: Int = try await AsyncDeadline.value(timeout: 30) { _ in Task { await started.mark() } }
