@@ -11,7 +11,7 @@ enum CaptureMode {
     case fullScreen
 }
 
-enum CaptureError: LocalizedError {
+enum CaptureError: LocalizedError, Equatable {
     case cancelled
     case failed(Int32)
     case missingOutput
@@ -34,12 +34,28 @@ struct PreparedScrollCapture: @unchecked Sendable {
 
 struct CaptureService: Sendable {
     var screenCaptureAccess: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
-    var filteredCapture: @Sendable (SCContentFilter, SCStreamConfiguration) async throws -> CGImage = {
-        try await SCScreenshotManager.captureImage(contentFilter: $0, configuration: $1)
+    var filteredCapture: @Sendable (SCContentFilter, SCStreamConfiguration) async throws -> CGImage = { filter, configuration in
+        try await AsyncDeadline.value(timeout: 8) { completion in
+            SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, error in
+                if let image { completion(.success(image)) }
+                else { completion(.failure(error ?? CaptureError.missingOutput)) }
+            }
+        }
     }
 
     var selectedCapture: @Sendable (SCContentFilter, SCStreamConfiguration) async throws -> CGImage = {
         try await SelectedContentFrameCapture.image(filter: $0, configuration: $1)
+    }
+
+    @MainActor
+    func captureSelectedRegion(rect: CGRect) async throws -> CGImage {
+        try Task.checkCancellation()
+        let prepared = try await prepareScrollCapture(rect: rect.integral)
+        try Task.checkCancellation()
+        let image = try await capture(prepared)
+        try Task.checkCancellation()
+        CaptureTelemetry.logger.notice("live_region_captured width=\(image.width, privacy: .public) height=\(image.height, privacy: .public)")
+        return image
     }
 
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
@@ -57,8 +73,10 @@ struct CaptureService: Sendable {
                     }
                 }
                 try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
-                CaptureTelemetry.logger.info("frozen_screen_captured")
+                CaptureTelemetry.logger.notice("frozen_screen_captured")
                 return image
+            } catch is CancellationError {
+                throw CaptureError.cancelled
             } catch {
                 CaptureTelemetry.logger.notice("frozen_screen_native_fallback")
                 return try await captureFrozenScreenFallback(rect: integral)
@@ -78,7 +96,7 @@ struct CaptureService: Sendable {
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw CaptureError.missingOutput
         }
-        CaptureTelemetry.logger.info("frozen_screen_captured_fallback")
+        CaptureTelemetry.logger.notice("frozen_screen_captured_fallback")
         return image
     }
 
@@ -104,11 +122,18 @@ struct CaptureService: Sendable {
         if #available(macOS 15.2, *) {
             do {
                 try? FileManager.default.removeItem(at: outputURL)
-                let image = try await SCScreenshotManager.captureImage(in: integral)
+                let image = try await AsyncDeadline.value(timeout: 8) { completion in
+                    SCScreenshotManager.captureImage(in: integral) { image, error in
+                        if let image { completion(.success(image)) }
+                        else { completion(.failure(error ?? CaptureError.missingOutput)) }
+                    }
+                }
                 try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
                 try Self.writePNG(image, to: outputURL)
                 CaptureTelemetry.logger.info("native_region_capture_finished")
                 return
+            } catch is CancellationError {
+                throw CaptureError.cancelled
             } catch {
                 CaptureTelemetry.logger.notice("native_region_capture_fallback")
             }
@@ -134,10 +159,12 @@ struct CaptureService: Sendable {
             throw CaptureError.missingOutput
         }
 
-        let shareableContent = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: false
-        )
+        let shareableContent: SCShareableContent = try await AsyncDeadline.value(timeout: 8) { completion in
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { content, error in
+                if let content { completion(.success(content)) }
+                else { completion(.failure(error ?? CaptureError.missingOutput)) }
+            }
+        }
         try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         guard let display = shareableContent.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.missingOutput
@@ -146,10 +173,8 @@ struct CaptureService: Sendable {
         let excludedApplications = shareableContent.applications.filter {
             $0.processID == currentPID
         }
-        guard !excludedApplications.isEmpty else {
-            throw CaptureError.missingOutput
-        }
-
+        // After a live selection closes, this app may have no shareable windows.
+        // An empty exclusion list then correctly captures the remaining desktop.
         let contentFilter = SCContentFilter(
             display: display,
             excludingApplications: excludedApplications,
@@ -218,30 +243,19 @@ struct CaptureService: Sendable {
     private func runScreencapture(arguments: [String], outputURL: URL) async throws {
         try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         try? FileManager.default.removeItem(at: outputURL)
-        try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            process.arguments = arguments
-            process.terminationHandler = { process in
-                let outcome = CaptureProcessOutcome.resolve(
-                    terminationStatus: process.terminationStatus,
-                    outputExists: FileManager.default.fileExists(atPath: outputURL.path)
-                )
-                switch outcome {
-                case .success:
-                    continuation.resume()
-                case .cancelled:
-                    continuation.resume(throwing: CaptureError.cancelled)
-                case let .failed(code):
-                    continuation.resume(throwing: CaptureError.failed(code))
-                }
-            }
-            do {
-                try process.run()
-                CaptureTelemetry.logger.info("capture_process_started")
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        let status = try await CaptureProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/usr/sbin/screencapture"),
+            arguments: arguments,
+            outputURL: outputURL,
+            // Interactive capture waits for the person; only preparation has a deadline.
+            timeout: arguments.contains("-i") ? nil : 8
+        )
+        CaptureTelemetry.logger.info("capture_process_finished status=\(status)")
+        switch CaptureProcessOutcome.resolve(terminationStatus: status,
+                                            outputExists: FileManager.default.fileExists(atPath: outputURL.path)) {
+        case .success: break
+        case .cancelled: throw CaptureError.cancelled
+        case let .failed(code): throw CaptureError.failed(code)
         }
         do {
             try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)

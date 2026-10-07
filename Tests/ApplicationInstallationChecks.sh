@@ -27,7 +27,7 @@ reject_text() {
 
 require_text "$DELEGATE" "offerInstallationIfNeeded" \
   "first launch does not offer to install an app opened from Downloads"
-require_text "$COORDINATOR" 'messageText = "Установить «Богдан Скриншот»?"' \
+require_text "$COORDINATOR" 'messageText = "Установить «\(AppIdentity.displayName)»?"' \
   "installation prompt is not clear"
 require_text "$COORDINATOR" 'checkboxWithTitle: "После установки удалить скачанную копию"' \
   "source deletion is not explicitly controlled by the user"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_PATH="${1:-$HOME/Applications/Богдан Скриншот.app}"
+APP_PATH="${1:-$HOME/Applications/Скриншутер.app}"
 EXPECTED_IDENTITY="${SCREENSHOT_APP_EXPECTED_SIGNING_IDENTITY:-ScreenshotApp Bogdan Local Signing}"
 EXPECTED_CERTIFICATE_SHA1="${SCREENSHOT_APP_EXPECTED_SIGNING_CERTIFICATE_SHA1:-12894FED984452E3FC2AFFDA5758A65BAC1DD2D2}"
 EXPECTED_BUNDLE_ID="local.codex.ScreenshotApp"

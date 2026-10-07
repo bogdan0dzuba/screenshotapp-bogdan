@@ -92,6 +92,12 @@ unlink "$SPARKLE_PRIVATE_FILE"
 SPARKLE_PRIVATE_FILE=""
 /bin/cp "$APPCAST_INPUT_DIR/appcast.xml" "$DIST_DIR/appcast.xml"
 
+# Refuse to offer an ARM-only executable to an existing Intel installation.
+/usr/bin/grep -Eq '<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>' "$DIST_DIR/appcast.xml" || {
+  echo "Публикация остановлена: appcast не ограничивает обновление Apple Silicon." >&2
+  exit 1
+}
+
 /usr/bin/grep -Fq 'sparkle:edSignature' "$DIST_DIR/appcast.xml" || {
   echo "Подписанный appcast.xml не создан." >&2
   exit 1
@@ -103,7 +109,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
     exit 1
   }
 else
-  git tag -a "$TAG" -m "Богдан Скриншот $TAG"
+  git tag -a "$TAG" -m "$SCREENSHOT_APP_DISPLAY_NAME $TAG"
 fi
 git push origin "$TAG"
 
@@ -121,7 +127,7 @@ else
   gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
     --repo "$REPOSITORY" \
     --verify-tag \
-    --title "Богдан Скриншот $TAG" \
+    --title "$SCREENSHOT_APP_DISPLAY_NAME $TAG" \
     --generate-notes
 fi
 

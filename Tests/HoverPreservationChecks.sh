@@ -40,9 +40,11 @@ require_order() {
   fi
 }
 
-require_text "$MODEL" "case .area: captureArea()" "ordinary area capture still launches the legacy screencapture process"
+require_text "$MODEL" "case .area: captureArea()" "ordinary area capture bypasses the native area selector"
 require_text "$MODEL" "let selection = try await regionSelectionController.selectRegion(using: captureService)" \
-  "ordinary area capture does not use the ScreenCaptureKit-backed frozen selector"
+  "ordinary area capture does not use the native live selector"
+require_text "$MODEL" "selectFrozenRegion(using: captureService)" \
+  "scrolling capture loses its frozen hover-preserving first frame"
 require_text "$MODEL" "try captureService.write(selection.image, to: request.temporaryURL)" \
   "ordinary area capture recaptures the selected pixels through a legacy API"
 require_text "$CAPTURE_SERVICE" "CaptureProcessOutcome.resolve" "native selector cancellation is not handled without a false error"
@@ -57,5 +59,14 @@ reject_text "$HOT_KEY" 'NSApp.activate()' \
 require_text "$CONTROLLER" "backdropImage:" "selection overlay does not display the frozen screen"
 require_text "$CONTROLLER" "cropFrozenScreen" "selected pixels are recaptured after hover content has disappeared"
 require_text "$MODEL" "firstFrame: selection.image" "scrolling capture ignores the hover-preserving first frame"
+
+python3 - "$CONTROLLER" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+live = text[text.index('func selectRegion(using '):text.index('func selectFrozenRegion(using ')]
+assert 'captureFrozenScreen' not in live, 'live hotkey must not prepare a full-screen image'
+assert live.index('selectLiveRegion(') < live.index('captureSelectedRegion('), 'pixels must be captured after live selection'
+assert 'withAlphaComponent(0.42)' not in text, 'full-screen dimming must remain disabled'
+PY
 
 echo "HoverPreservationChecks: OK"

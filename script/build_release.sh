@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/version.sh"
 
 BUILD_PRODUCT="ScreenshotApp"
-APP_NAME="Богдан Скриншот"
+APP_NAME="$SCREENSHOT_APP_DISPLAY_NAME"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
 APP_VERSION="${SCREENSHOT_APP_VERSION:-$SCREENSHOT_APP_CURRENT_VERSION}"
@@ -17,7 +17,7 @@ case "$SIGNING_IDENTITY_MODE" in
   --require-release|--ci-adhoc)
     ;;
   *)
-    echo "Недопустимый режим подписи Universal-сборки: $SIGNING_IDENTITY_MODE" >&2
+    echo "Недопустимый режим подписи ARM-сборки: $SIGNING_IDENTITY_MODE" >&2
     exit 2
     ;;
 esac
@@ -35,7 +35,6 @@ APP_BINARY="$APP_MACOS/$BUILD_PRODUCT"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_ICON_SOURCE="$ROOT_DIR/Assets/AppIcon.icns"
 ARM_BUILD_DIR="$RELEASE_WORK_DIR/arm64"
-INTEL_BUILD_DIR="$RELEASE_WORK_DIR/x86_64"
 BUILD_CACHE_DIR="$RELEASE_WORK_DIR/cache"
 ARCHIVE_NAME="ScreenshotApp-Bogdan-macOS-Universal.zip"
 DELIVERABLE_ZIP="$DIST_DIR/$ARCHIVE_NAME"
@@ -59,7 +58,7 @@ prepare_swift_environment() {
   local probe_source="$probe_dir/probe.swift"
   local probe_log="$probe_dir/probe.log"
   mkdir -p "$probe_dir/default-cache"
-  printf 'import Foundation\n' >"$probe_source"
+  printf 'import SwiftUI\nstruct SDKProbe: View { @State private var value = false; var body: some View { Text("Probe") } }\n' >"$probe_source"
 
   if /usr/bin/swiftc \
     -typecheck \
@@ -71,14 +70,14 @@ prepare_swift_environment() {
     return
   fi
 
-  if ! /usr/bin/grep -Fq "SDK is not supported by the compiler" "$probe_log"; then
+  if ! /usr/bin/grep -Eq "SDK is not supported by the compiler|SwiftUIMacros" "$probe_log"; then
     /bin/cat "$probe_log" >&2
     /bin/rm -rf -- "$probe_dir"
     exit 1
   fi
 
   local candidate
-  for candidate in /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk; do
+  for candidate in /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk; do
     [[ -d "$candidate" ]] || continue
     mkdir -p "$probe_dir/fallback-cache"
     if /usr/bin/swiftc \
@@ -103,6 +102,7 @@ build_architecture() {
   local triple="$1"
   local scratch_path="$2"
   swift build \
+    --skip-update \
     --disable-sandbox \
     --configuration release \
     --triple "$triple" \
@@ -135,27 +135,30 @@ if [[ "$SIGNING_IDENTITY_MODE" == "--require-release" ]]; then
     --require-release
 fi
 
-/bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$INTEL_BUILD_DIR" "$DMG_STAGE_DIR"
+/bin/rm -rf -- "$STAGE_DIR" "$ARM_BUILD_DIR" "$DMG_STAGE_DIR"
 mkdir -p "$DIST_DIR" "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 
 build_architecture "arm64-apple-macosx14.0" "$ARM_BUILD_DIR"
-build_architecture "x86_64-apple-macosx14.0" "$INTEL_BUILD_DIR"
 
-# Execute behavioral checks on the host before distributing either architecture.
+# Execute behavioral checks on the host before packaging.
 swift run --disable-sandbox --configuration release CoreChecks
+swift run --disable-sandbox --configuration release ReliabilityChecks
+bash "$ROOT_DIR/Tests/HotKeyRegistrationChecks.sh"
+bash "$ROOT_DIR/Tests/SelectionFocusChecks.sh"
 
-ARM_BINARY="$ARM_BUILD_DIR/arm64-apple-macosx/release/$BUILD_PRODUCT"
-INTEL_BINARY="$INTEL_BUILD_DIR/x86_64-apple-macosx/release/$BUILD_PRODUCT"
-/usr/bin/lipo -create "$ARM_BINARY" "$INTEL_BINARY" -output "$APP_BINARY"
+ARM_BIN_DIR="$(swift build --disable-sandbox --configuration release \
+  --triple arm64-apple-macosx14.0 --scratch-path "$ARM_BUILD_DIR" --show-bin-path)"
+ARM_BINARY="$ARM_BIN_DIR/$BUILD_PRODUCT"
+/bin/cp "$ARM_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 /bin/cp "$APP_ICON_SOURCE" "$APP_RESOURCES/AppIcon.icns"
 /usr/bin/ditto \
-  "$ARM_BUILD_DIR/arm64-apple-macosx/release/Sparkle.framework" \
+  "$ARM_BIN_DIR/Sparkle.framework" \
   "$APP_FRAMEWORKS/Sparkle.framework"
 
 ARCHS="$(/usr/bin/lipo -archs "$APP_BINARY")"
-[[ " $ARCHS " == *" arm64 "* && " $ARCHS " == *" x86_64 "* ]] || {
-  echo "Не удалось создать Universal-бинарник: $ARCHS" >&2
+[[ "$ARCHS" == "arm64" ]] || {
+  echo "Ожидался ARM-бинарник: $ARCHS" >&2
   exit 1
 }
 

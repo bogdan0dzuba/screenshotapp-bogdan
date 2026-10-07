@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "ScreenshotCore", targets: ["ScreenshotCore"]),
         .executable(name: "ScreenshotApp", targets: ["ScreenshotApp"]),
         .executable(name: "CoreChecks", targets: ["CoreChecks"]),
+        .executable(name: "ReliabilityChecks", targets: ["ReliabilityChecks"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
@@ -29,6 +30,8 @@ let package = Package(
             dependencies: ["ScreenshotCore"],
             path: "Tests/CoreChecks"
         ),
+        .executableTarget(name: "ReliabilityChecks", dependencies: ["ScreenshotCore"],
+                          path: "Tests/ReliabilityChecks"),
     ],
     swiftLanguageModes: [.v5]
 )

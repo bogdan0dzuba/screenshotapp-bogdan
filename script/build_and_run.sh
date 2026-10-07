@@ -3,7 +3,6 @@ set -euo pipefail
 
 MODE="${1:-run}"
 BUILD_PRODUCT="ScreenshotApp"
-APP_NAME="Богдан Скриншот"
 PROCESS_NAME="ScreenshotApp"
 BUNDLE_ID="local.codex.ScreenshotApp"
 MIN_SYSTEM_VERSION="14.0"
@@ -11,6 +10,7 @@ SIGNING_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/script/version.sh"
+APP_NAME="$SCREENSHOT_APP_DISPLAY_NAME"
 APP_VERSION="$SCREENSHOT_APP_CURRENT_VERSION"
 BUILD_NUMBER="$SCREENSHOT_APP_CURRENT_BUILD_NUMBER"
 DIST_DIR="$ROOT_DIR/dist"
@@ -75,7 +75,7 @@ prepare_swift_environment() {
   local probe_log="$probe_dir/probe.log"
   local default_sdk
   mkdir -p "$probe_dir/default-cache"
-  printf 'import Foundation\n' >"$probe_source"
+  printf 'import SwiftUI\nstruct SDKProbe: View { @State private var value = false; var body: some View { Text("Probe") } }\n' >"$probe_source"
   default_sdk="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
   if /usr/bin/swiftc \
     -typecheck \
@@ -87,14 +87,14 @@ prepare_swift_environment() {
     return
   fi
 
-  if ! /usr/bin/grep -Fq "SDK is not supported by the compiler" "$probe_log"; then
+  if ! /usr/bin/grep -Eq "SDK is not supported by the compiler|SwiftUIMacros" "$probe_log"; then
     /bin/cat "$probe_log" >&2
     /bin/rm -rf -- "$probe_dir"
     exit 1
   fi
 
   local candidate
-  for candidate in /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk; do
+  for candidate in /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk; do
     [[ -d "$candidate" ]] || continue
     mkdir -p "$probe_dir/fallback-cache"
     if /usr/bin/swiftc \

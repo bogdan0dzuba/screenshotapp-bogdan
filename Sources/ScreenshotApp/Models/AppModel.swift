@@ -78,6 +78,12 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func revealShelf() {
+        shelfState = .expanded
+        shelfController?.updatePresentation()
+        shelfController?.activateForKeyboard()
+    }
+
     func registerHotKey() {
         let preferred = preferences.hotKey
         var lastError: Error?
@@ -163,7 +169,7 @@ final class AppModel: ObservableObject {
             statusMessage = "Дождитесь завершения текущего захвата"
             return
         }
-        CaptureTelemetry.logger.info("area_capture_started")
+        CaptureTelemetry.logger.notice("area_capture_started")
         let captureService = captureService
         let captureTask = Task { @MainActor in
             let selection = try await regionSelectionController.selectRegion(using: captureService)
@@ -243,6 +249,7 @@ final class AppModel: ObservableObject {
             defer {
                 try? FileManager.default.removeItem(at: request.temporaryURL)
                 if isAreaCapture, activeAreaCaptureID == request.id {
+                    restartAreaCaptureAfterCancellation = false
                     activeAreaCaptureTask = nil
                     activeAreaCaptureID = nil
                     areaHotKeyAttemptCount = 0
@@ -251,9 +258,12 @@ final class AppModel: ObservableObject {
             let capturedAt: Date
             do {
                 try await captureTask.value
+                if isAreaCapture, activeAreaCaptureID == request.id {
+                    restartAreaCaptureAfterCancellation = false
+                }
                 capturedAt = Date()
                 guard beginImport(for: request.id) else { return }
-            } catch CaptureError.cancelled {
+            } catch where error is CancellationError || (error as? CaptureError) == .cancelled {
                 let shouldRestart = isAreaCapture && restartAreaCaptureAfterCancellation
                 restartAreaCaptureAfterCancellation = false
                 cancelCapture(id: request.id)
@@ -316,11 +326,16 @@ final class AppModel: ObservableObject {
     private func recoverAreaCaptureFromHotKey() {
         switch AreaCaptureRecoveryPolicy.action(
             hasActiveAreaCapture: activeAreaCaptureTask != nil,
-            hotKeyAttemptCount: areaHotKeyAttemptCount
+            hotKeyAttemptCount: areaHotKeyAttemptCount,
+            hasPendingSelection: regionSelectionController?.hasPendingSelection ?? false
         ) {
         case .start:
             areaHotKeyAttemptCount = 1
             capture(.area)
+        case .refocus:
+            regionSelectionController?.focusPendingOverlayIfNeeded()
+            statusMessage = "Выберите область снимка"
+            CaptureTelemetry.logger.notice("area_capture_refocused")
         case .waitForRecovery:
             let attempts = areaHotKeyAttemptCount
             CaptureTelemetry.logger.notice(
@@ -371,7 +386,7 @@ final class AppModel: ObservableObject {
                     selection = try await regionSelectionController.selectRegion(captureRect: windowRect, backdropImage: image)
                     preparedCapture = try systemContentCapture.prepared(filter, rect: selection.rect, within: windowRect)
                 } else {
-                    selection = try await regionSelectionController.selectRegion(using: captureService)
+                    selection = try await regionSelectionController.selectFrozenRegion(using: captureService)
                     preparedCapture = try await captureService.prepareScrollCapture(rect: selection.rect)
                 }
                 scrollCaptureController?.begin(
@@ -381,7 +396,7 @@ final class AppModel: ObservableObject {
                     model: self
                 )
                 statusMessage = "Область выбрана. Нажмите «Начать» рядом с рамкой"
-            } catch CaptureError.cancelled {
+            } catch where error is CancellationError || (error as? CaptureError) == .cancelled {
                 systemContentCapture.endSession()
                 pendingCaptureSource = nil
                 pendingScrollCaptureID = nil
@@ -701,6 +716,7 @@ final class AppModel: ObservableObject {
             return
         }
         statusMessage = error.localizedDescription
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert(error: error)
         alert.messageText = "Скриншот не готов"
         alert.addButton(withTitle: "ОК")
@@ -731,6 +747,7 @@ final class AppModel: ObservableObject {
         statusMessage = error.localizedDescription
         let alert = NSAlert()
         alert.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true)
         alert.messageText = "Не удалось назначить хоткей"
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: "Выбрать другое сочетание")

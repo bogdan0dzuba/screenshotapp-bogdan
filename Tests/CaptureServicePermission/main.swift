@@ -16,6 +16,7 @@ struct CaptureServicePermissionChecks {
         try sentinel.write(to: output)
         let rect = CGRect(x: 0, y: 0, width: 16, height: 16)
         try await denied("frozen selection") { _ = try await service.captureFrozenScreen(rect: rect) }
+        try await denied("live selected region") { _ = try await service.captureSelectedRegion(rect: rect) }
         for mode in [CaptureMode.area, .window, .fullScreen] {
             try await denied("system capture") { try await service.capture(mode, to: output) }
         }

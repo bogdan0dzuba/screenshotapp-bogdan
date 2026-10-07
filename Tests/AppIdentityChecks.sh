@@ -19,7 +19,7 @@ require_text() {
   fi
 }
 
-require_text Sources/ScreenshotApp/Support/AppIdentity.swift 'displayName = "Богдан Скриншот"' \
+require_text Sources/ScreenshotApp/Support/AppIdentity.swift 'displayName = "Скриншутер"' \
   "the public product name is missing"
 if /usr/bin/grep -Fq -- 'CFBundleVersion' Sources/ScreenshotApp/Support/AppIdentity.swift; then
   echo "AppIdentityChecks: the internal build number is exposed to users" >&2
@@ -31,9 +31,11 @@ require_text "$SETTINGS_VIEW" 'Section("О приложении")' \
   "settings do not show an about section"
 require_text "$SETTINGS_VIEW" 'AppIdentity.versionDescription' \
   "settings do not show the installed bundle version"
-require_text "$LOCAL_BUILD" 'APP_NAME="Богдан Скриншот"' \
+require_text "$VERSION_FILE" 'SCREENSHOT_APP_DISPLAY_NAME="Скриншутер"' \
+  "shared packaging name is missing"
+require_text "$LOCAL_BUILD" 'APP_NAME="$SCREENSHOT_APP_DISPLAY_NAME"' \
   "local app bundle still uses the old name"
-require_text "$RELEASE_BUILD" 'APP_NAME="Богдан Скриншот"' \
+require_text "$RELEASE_BUILD" 'APP_NAME="$SCREENSHOT_APP_DISPLAY_NAME"' \
   "release app bundle still uses the old name"
 require_text "$LOCAL_BUILD" 'CFBundleIconFile' \
   "local app bundle does not declare an icon"
