@@ -86,7 +86,8 @@ struct ShelfHotKeyChecks {
         try dispatch(id: 1)
         precondition(model.shelfState == .collapsed, "Old shortcut must survive a failed replacement")
         try dispatch(id: 1)
-        let transparency = model.preferences.shelfTransparency
+        let collapsedTransparency = model.preferences.collapsedShelfTransparency
+        let expandedTransparency = model.preferences.expandedShelfTransparency
         let glass = model.preferences.expandedTrueLiquidGlass
         stage("workspace inactivity")
         let other = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first!
@@ -114,7 +115,8 @@ struct ShelfHotKeyChecks {
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification,
             object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
         precondition(!model.shelfIsInactive && panel.alphaValue == 1)
-        precondition(model.preferences.shelfTransparency == transparency && model.preferences.expandedTrueLiquidGlass == glass)
+        precondition(model.preferences.collapsedShelfTransparency == collapsedTransparency &&
+                     model.preferences.expandedShelfTransparency == expandedTransparency && model.preferences.expandedTrueLiquidGlass == glass)
         stage("suspended capture")
         shelf.suspend()
         try dispatch(id: 1)

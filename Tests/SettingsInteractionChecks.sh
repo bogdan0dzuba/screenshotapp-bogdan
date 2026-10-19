@@ -48,8 +48,8 @@ require_text "$PREFERENCES" 'static let historyFractionRevision = "historyFracti
 require_text "$PREFERENCES" "currentHistoryFractionRevision" "history split migration has no revision marker"
 require_text "$PREFERENCES" "Self.defaultShelfTransparency" "shelf transparency has no stable default"
 require_text "$SETTINGS_VIEW" 'Section("Внешний вид")' "shelf appearance settings are missing"
-require_text "$SETTINGS_VIEW" 'Slider(value: $preferences.shelfTransparency, in: 0...1)' "shelf transparency cannot be adjusted continuously"
-require_text "$SETTINGS_VIEW" 'Int((preferences.shelfTransparency * 100).rounded())' "shelf transparency percentage is not visible"
+require_text "$SETTINGS_VIEW" 'Slider(value: value, in: 0...1)' "shelf transparency cannot be adjusted continuously"
+require_text "$SETTINGS_VIEW" 'Int((value.wrappedValue * 100).rounded())' "shelf transparency percentage is not visible"
 require_text "$PREFERENCES" 'static let automaticallyDeletesOldCaptures = "automaticallyDeletesOldCaptures"' "automatic cleanup has no persistent preference key"
 require_text "$PREFERENCES" '@Published var automaticallyDeletesOldCaptures: Bool' "automatic cleanup cannot be changed"
 require_text "$PREFERENCES" 'defaults.set(automaticallyDeletesOldCaptures' "automatic cleanup preference is not persisted"
@@ -105,3 +105,6 @@ require_text "$LAUNCH_AT_LOGIN_SERVICE" 'category: "LaunchAtLogin"' \
   "launch-at-login failures cannot be diagnosed from the unified log"
 
 echo "SettingsInteractionChecks: OK"
+
+require_text "$SETTINGS_VIEW" 'value: $preferences.collapsedShelfTransparency' "compact transparency cannot be adjusted independently"
+require_text "$SETTINGS_VIEW" 'value: $preferences.expandedShelfTransparency' "expanded transparency cannot be adjusted independently"

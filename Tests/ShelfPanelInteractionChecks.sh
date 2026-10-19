@@ -154,7 +154,7 @@ require_view '.glassEffect(.regular, in: shape)' "expanded shelf does not use st
 require_view '.glassEffect(.clear, in: shape)' "expanded shelf has no optional clear glass"
 require_view ': preferences.expandedTrueLiquidGlass' "expanded glass does not use its independent saved selection"
 require_view 'if trueLiquidGlass && !reduceTransparency {' "clear glass ignores its opt-in preference or system accessibility setting"
-require_view 'model.shelfIsInactive ? 1 : model.preferences.shelfTransparency' "glass does not react to the saved transparency preference"
+require_view 'transparency: effectiveShelfTransparency' "glass does not react to the saved transparency preference"
 require_view '1 - transparency' "transparency preference is not mapped to the glass background"
 reject_view '.opacity(model.preferences.shelfTransparency)' "transparency incorrectly fades text and controls"
 dark_scheme_count="$(/usr/bin/grep -Fc '.environment(\.colorScheme, .dark)' "$SHELF_VIEW" || true)"
@@ -180,3 +180,7 @@ require_view "addCursorRect(bounds, cursor: .arrow)" "shelf views do not force a
 require_view "NSCursor.arrow.set()" "shelf does not restore the pointer after the resize cursor"
 
 echo "ShelfPanelInteractionChecks: OK"
+
+require_view 'preferences.collapsedShelfTransparency' "compact shelf does not use its own transparency"
+require_view 'preferences.expandedShelfTransparency' "expanded shelf does not use its own transparency"
+require_view '.opacity(glassOpacity)' "the glass material ignores transparency"

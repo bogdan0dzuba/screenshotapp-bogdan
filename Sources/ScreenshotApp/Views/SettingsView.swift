@@ -157,15 +157,8 @@ struct SettingsView: View {
                      : "True Liquid Glass доступен в macOS 26 и новее.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                LabeledContent("Прозрачность полки") {
-                    HStack(spacing: 10) {
-                        Slider(value: $preferences.shelfTransparency, in: 0...1)
-                            .frame(width: 190)
-                        Text("\(Int((preferences.shelfTransparency * 100).rounded()))%")
-                            .font(.body.monospacedDigit())
-                            .frame(width: 42, alignment: .trailing)
-                    }
-                }
+                transparencySlider("Прозрачность свернутой полки", value: $preferences.collapsedShelfTransparency)
+                transparencySlider("Прозрачность развернутой полки", value: $preferences.expandedShelfTransparency)
                 Text("0% - плотнее, 100% - прозрачнее. Текст, иконки и снимки не бледнеют.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -173,6 +166,19 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { launchAtLoginService.refresh() }
+    }
+
+    private func transparencySlider(_ title: String, value: Binding<Double>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 10) {
+                Slider(value: value, in: 0...1)
+                    .accessibilityLabel(title)
+                    .frame(width: 190)
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .font(.body.monospacedDigit())
+                    .frame(width: 42, alignment: .trailing)
+            }
+        }
     }
 
     private var hotKeyDraft: HotKey {

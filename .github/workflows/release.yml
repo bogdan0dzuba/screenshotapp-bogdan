@@ -23,7 +23,9 @@ jobs:
 
       - name: Проверить вызов полки и прозрачность
         timeout-minutes: 3
-        run: bash Tests/ShelfHotKeyChecks.sh
+        run: |
+          bash Tests/ShelfHotKeyChecks.sh
+          bash Tests/LiquidGlassPreferencesChecks.sh
 
       - name: Проверить интерфейсные контракты
         run: |
