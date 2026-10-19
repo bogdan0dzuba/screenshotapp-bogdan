@@ -1,6 +1,18 @@
 import CoreGraphics
 
 public enum ShelfPlacement {
+    public static func frameNearPointer(
+        _ pointer: CGPoint, size: CGSize, visibleFrame: CGRect
+    ) -> CGRect {
+        let bounded = CGSize(width: min(max(1, size.width), visibleFrame.width),
+                             height: min(max(1, size.height), visibleFrame.height))
+        return CGRect(
+            x: min(max(pointer.x + 12, visibleFrame.minX), visibleFrame.maxX - bounded.width),
+            y: min(max(pointer.y - bounded.height, visibleFrame.minY), visibleFrame.maxY - bounded.height),
+            width: bounded.width, height: bounded.height
+        )
+    }
+
     public static func resizedFrame(
         currentFrame: CGRect,
         targetSize: CGSize,

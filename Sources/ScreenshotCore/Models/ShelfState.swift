@@ -6,6 +6,10 @@ public enum ShelfState: Codable, Equatable, Sendable {
     case temporarilyHidden(until: Date)
     case hiddenUntilNextCapture
 
+    public func toggledByHotKey(windowIsVisible: Bool, windowIsActive: Bool) -> ShelfState {
+        self == .expanded && windowIsVisible && windowIsActive ? .collapsed : .expanded
+    }
+
     public mutating func receivedNewCapture() {
         switch self {
         case .expanded, .collapsed:

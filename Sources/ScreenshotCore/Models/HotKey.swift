@@ -24,6 +24,10 @@ public struct HotKey: Codable, Equatable, Sendable {
         self.modifiers = modifiers
     }
 
+    public static let defaultShelf = HotKey(
+        key: "Q", keyCode: 12, modifiers: [.control, .option]
+    )
+
     public static let defaultCapture = HotKey(
         key: "A",
         keyCode: 0,

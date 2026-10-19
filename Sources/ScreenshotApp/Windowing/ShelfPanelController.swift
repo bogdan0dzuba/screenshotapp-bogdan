@@ -12,6 +12,10 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
     private var hasBeenPresented = false
     private var isApplyingPresentation = false
     private var copyEventMonitor: Any?
+    private var localActivityMonitor: Any?
+    private var globalActivityMonitor: Any?
+    private var workspaceObserver: NSObjectProtocol?
+    private var collapseAfterFullScreen = false
     private var wakeTask: Task<Void, Never>?
 
     init(
@@ -67,6 +71,23 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
             )
         )
         setStandardWindowControlsVisible(false)
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            MainActor.assumeIsolated {
+                self?.setInactive(app.processIdentifier != ProcessInfo.processInfo.processIdentifier)
+            }
+        }
+        globalActivityMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setInactive(true) }
+        }
+        localActivityMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            if let self, event.windowNumber == self.panel.windowNumber {
+                self.setInactive(false)
+            }
+            return event
+        }
         copyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   ShelfKeyboardShortcut.shouldCopy(
@@ -83,11 +104,45 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
             self.model.copy(item)
             return nil
         }
+        setInactive(NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier)
     }
 
     deinit {
+        if let localActivityMonitor { NSEvent.removeMonitor(localActivityMonitor) }
+        if let globalActivityMonitor { NSEvent.removeMonitor(globalActivityMonitor) }
+        if let workspaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver) }
         if let copyEventMonitor {
             NSEvent.removeMonitor(copyEventMonitor)
+        }
+    }
+
+    private func setInactive(_ inactive: Bool) {
+        let inactive = inactive && model.shelfState == .expanded
+        model.shelfIsInactive = inactive
+        // Fade the screenshot as well as its glass background, so other windows remain visible.
+        panel.alphaValue = inactive && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 0.22 : 1
+    }
+
+    func toggleNearPointer() {
+        guard !isSuspended else { return }
+        let next = model.shelfState.toggledByHotKey(windowIsVisible: panel.isVisible && !panel.isMiniaturized,
+                                                     windowIsActive: !model.shelfIsInactive)
+        if next == .collapsed, panel.styleMask.contains(.fullScreen) {
+            collapseAfterFullScreen = true
+            panel.toggleFullScreen(nil)
+            return
+        }
+        model.shelfState = next
+        setInactive(false)
+        updatePresentation()
+        if next == .expanded {
+            let pointer = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) }) ?? NSScreen.main else { return }
+            let frame = ShelfPlacement.frameNearPointer(pointer, size: expandedSize, visibleFrame: screen.visibleFrame)
+            isApplyingPresentation = true
+            panel.setFrame(frame, display: true)
+            isApplyingPresentation = false
+            activateForKeyboard()
         }
     }
 
@@ -102,6 +157,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
     }
 
     func activateForKeyboard() {
+        setInactive(false)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
@@ -113,6 +169,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
             return
         }
 
+        if model.shelfState != .expanded { setInactive(false) }
         switch model.shelfState {
         case .expanded:
             configureWindowChrome(
@@ -177,6 +234,11 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
+        if collapseAfterFullScreen {
+            collapseAfterFullScreen = false
+            model.shelfState = .collapsed
+            setInactive(false)
+        }
         panel.isFloatingPanel = true
         panel.level = .floating
         updatePresentation()

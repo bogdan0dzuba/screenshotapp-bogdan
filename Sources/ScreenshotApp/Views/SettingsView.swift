@@ -80,6 +80,9 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("Вызов полки у курсора") {
+                ShelfShortcutSettings(model: model)
+            }
             Section("Сохранение") {
                 LabeledContent("Папка") {
                     Text(preferences.captureFolder.path)
@@ -145,6 +148,15 @@ struct SettingsView: View {
                 }
             }
             Section("Внешний вид") {
+                Toggle("True Liquid Glass - свернутая полка", isOn: $preferences.trueLiquidGlass)
+                    .disabled(!AppPreferences.supportsTrueLiquidGlass)
+                Toggle("True Liquid Glass - развернутая полка", isOn: $preferences.expandedTrueLiquidGlass)
+                    .disabled(!AppPreferences.supportsTrueLiquidGlass)
+                Text(AppPreferences.supportsTrueLiquidGlass
+                     ? "Прозрачное стекло с бликами. Виды полки настраиваются отдельно; выключите режим, чтобы вернуть прежний вид."
+                     : "True Liquid Glass доступен в macOS 26 и новее.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 LabeledContent("Прозрачность полки") {
                     HStack(spacing: 10) {
                         Slider(value: $preferences.shelfTransparency, in: 0...1)
@@ -235,5 +247,49 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+
+private struct ShelfShortcutSettings: View {
+    @ObservedObject var model: AppModel
+    @State private var draft: HotKey
+
+    init(model: AppModel) {
+        self.model = model
+        _draft = State(initialValue: model.preferences.shelfHotKey)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Одно нажатие - раскрыть у мышки, повторное - свернуть. При переходе в другое приложение раскрытая полка становится прозрачной.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                modifier("⌃", .control)
+                modifier("⌥", .option)
+                modifier("⇧", .shift)
+                modifier("⌘", .command)
+                Picker("Клавиша полки", selection: Binding(
+                    get: { draft.key },
+                    set: { draft.key = $0; draft.keyCode = AppPreferences.keyCodes[$0] ?? 12 }
+                )) {
+                    ForEach(model.preferences.availableLetters, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden().frame(width: 75)
+            }
+            Text(model.activeShelfHotKey.map(HotKeyDisplayFormatter.symbolic) ?? "Хоткей полки не назначен")
+                .font(.body.monospaced())
+            if let error = model.shelfHotKeyError {
+                Text(error).foregroundStyle(.red).font(.caption)
+            }
+            Button("Применить хоткей полки") { model.registerShelfHotKey(draft) }
+        }
+    }
+
+    private func modifier(_ title: String, _ flag: HotKeyModifiers) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { draft.modifiers.contains(flag) },
+            set: { if $0 { draft.modifiers.insert(flag) } else { draft.modifiers.remove(flag) } }
+        )).toggleStyle(.checkbox)
     }
 }

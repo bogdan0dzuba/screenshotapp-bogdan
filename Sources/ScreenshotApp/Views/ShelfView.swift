@@ -12,6 +12,7 @@ struct ShelfView: View {
     @ObservedObject private var preferences: AppPreferences
     @State private var splitDragStartFraction: Double?
     @State private var splitDividerCursorIsActive = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(
         model: AppModel,
@@ -39,7 +40,10 @@ struct ShelfView: View {
         }
         .shelfGlassSurface(
             isCollapsed: model.shelfState == .collapsed,
-            transparency: model.preferences.shelfTransparency
+            transparency: model.shelfIsInactive ? 1 : model.preferences.shelfTransparency,
+            trueLiquidGlass: model.shelfState == .collapsed
+                ? preferences.trueLiquidGlass
+                : preferences.expandedTrueLiquidGlass || model.shelfIsInactive
         )
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -58,7 +62,7 @@ struct ShelfView: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .foregroundStyle(.white.opacity(0.94))
+                    .foregroundStyle(collapsedForeground)
                     .frame(width: ShelfMetrics.collapsedCountWidth)
                     .allowsHitTesting(false)
             }
@@ -69,6 +73,12 @@ struct ShelfView: View {
 
     private var collapsedDragSurface: some View {
         ShelfWindowDragHandle()
+    }
+
+    private var collapsedForeground: Color {
+        preferences.trueLiquidGlass && AppPreferences.supportsTrueLiquidGlass && !reduceTransparency
+            ? .primary
+            : .white.opacity(0.94)
     }
 
     private var shelfToggleButton: some View {
@@ -83,7 +93,7 @@ struct ShelfView: View {
             }
                 .foregroundStyle(
                     model.shelfState == .collapsed
-                        ? Color.white.opacity(0.96)
+                        ? collapsedForeground
                         : Color.primary
                 )
                 .shadow(
@@ -435,6 +445,7 @@ private struct ShelfWindowControls: View {
 private struct ShelfGlassSurfaceModifier: ViewModifier {
     let isCollapsed: Bool
     let transparency: Double
+    let trueLiquidGlass: Bool
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -443,24 +454,42 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
 #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26.0, *) {
             if isCollapsed {
-                content
-                    .environment(\.colorScheme, .dark)
-                    .glassEffect(
-                        .regular.interactive(),
-                        in: Capsule()
-                    )
-                    .background(
-                        Color.black.opacity(adaptiveTintOpacity(maximum: 0.24)),
-                        in: Capsule()
-                    )
+                if trueLiquidGlass && !reduceTransparency {
+                    content
+                        .glassEffect(.clear.interactive(), in: Capsule())
+                        .background(
+                            Color.black.opacity(adaptiveTintOpacity(maximum: 0.08)),
+                            in: Capsule()
+                        )
+                } else {
+                    content
+                        .environment(\.colorScheme, .dark)
+                        .glassEffect(
+                            .regular.interactive(),
+                            in: Capsule()
+                        )
+                        .background(
+                            Color.black.opacity(adaptiveTintOpacity(maximum: 0.24)),
+                            in: Capsule()
+                        )
+                }
             } else {
                 let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-                content
-                    .glassEffect(.regular, in: shape)
-                    .background(
-                        Color.black.opacity(adaptiveTintOpacity(maximum: 0.2)),
-                        in: shape
-                    )
+                if trueLiquidGlass && !reduceTransparency {
+                    content
+                        .glassEffect(.clear, in: shape)
+                        .background(
+                            Color.black.opacity(adaptiveTintOpacity(maximum: 0.06)),
+                            in: shape
+                        )
+                } else {
+                    content
+                        .glassEffect(.regular, in: shape)
+                        .background(
+                            Color.black.opacity(adaptiveTintOpacity(maximum: 0.2)),
+                            in: shape
+                        )
+                }
             }
         } else {
             fallbackSurface(content: content)
@@ -510,10 +539,11 @@ private struct ShelfGlassSurfaceModifier: ViewModifier {
 }
 
 private extension View {
-    func shelfGlassSurface(isCollapsed: Bool, transparency: Double) -> some View {
+    func shelfGlassSurface(isCollapsed: Bool, transparency: Double, trueLiquidGlass: Bool) -> some View {
         modifier(ShelfGlassSurfaceModifier(
             isCollapsed: isCollapsed,
-            transparency: transparency
+            transparency: transparency,
+            trueLiquidGlass: trueLiquidGlass
         ))
     }
 

@@ -13,6 +13,7 @@ final class AppPreferences: ObservableObject {
     }
 
     private enum Key {
+        static let shelfHotKey = "shelfHotKey"
         static let folder = "captureFolder"
         static let hotKeyLetter = "hotKeyLetter"
         static let hotKeyCommand = "hotKeyCommand"
@@ -27,9 +28,18 @@ final class AppPreferences: ObservableObject {
         static let historyFraction = "historyFraction"
         static let historyFractionRevision = "historyFractionRevision"
         static let shelfTransparency = "shelfTransparency"
+        static let trueLiquidGlass = "trueLiquidGlass"
+        static let expandedTrueLiquidGlass = "expandedTrueLiquidGlass"
         static let editorToolOrder = "editorToolOrder"
     }
 
+    @Published var shelfHotKey: HotKey {
+        didSet {
+            if let data = try? JSONEncoder().encode(shelfHotKey) {
+                defaults.set(data, forKey: Key.shelfHotKey)
+            }
+        }
+    }
     @Published var captureFolder: URL { didSet { defaults.set(captureFolder.path, forKey: Key.folder) } }
     @Published var hotKeyLetter: String { didSet { defaults.set(hotKeyLetter, forKey: Key.hotKeyLetter) } }
     @Published var useCommand: Bool { didSet { defaults.set(useCommand, forKey: Key.hotKeyCommand) } }
@@ -70,6 +80,12 @@ final class AppPreferences: ObservableObject {
             defaults.set(constrained, forKey: Key.shelfTransparency)
         }
     }
+    @Published var trueLiquidGlass: Bool {
+        didSet { defaults.set(trueLiquidGlass, forKey: Key.trueLiquidGlass) }
+    }
+    @Published var expandedTrueLiquidGlass: Bool {
+        didSet { defaults.set(expandedTrueLiquidGlass, forKey: Key.expandedTrueLiquidGlass) }
+    }
     @Published private(set) var editorToolOrder: [EditorTool]
 
     let availableLetters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
@@ -77,8 +93,22 @@ final class AppPreferences: ObservableObject {
     static let defaultShelfTransparency = 0.35
     static let currentHistoryFractionRevision = 2
 
+    static var supportsTrueLiquidGlass: Bool {
+#if canImport(SwiftUI, _version: 7.0)
+        if #available(macOS 26.0, *) { return true }
+#endif
+        return false
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        if let data = defaults.data(forKey: Key.shelfHotKey),
+           let stored = try? JSONDecoder().decode(HotKey.self, from: data),
+           Self.keyCodes[stored.key] == stored.keyCode, !stored.modifiers.isEmpty {
+            shelfHotKey = stored
+        } else {
+            shelfHotKey = .defaultShelf
+        }
         let fallback = Self.defaultCaptureFolder()
         captureFolder = defaults.string(forKey: Key.folder).map(URL.init(fileURLWithPath:)) ?? fallback
         let storedHotKeyLetter = defaults.string(forKey: Key.hotKeyLetter)?.uppercased()
@@ -114,6 +144,8 @@ final class AppPreferences: ObservableObject {
         let storedTransparency = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
             ?? Self.defaultShelfTransparency
         shelfTransparency = Self.clampedTransparency(storedTransparency)
+        trueLiquidGlass = defaults.object(forKey: Key.trueLiquidGlass) as? Bool ?? false
+        expandedTrueLiquidGlass = defaults.object(forKey: Key.expandedTrueLiquidGlass) as? Bool ?? false
         editorToolOrder = Self.editorTools(
             from: EditorToolOrderPolicy.normalize(defaults.stringArray(forKey: Key.editorToolOrder) ?? [])
         )

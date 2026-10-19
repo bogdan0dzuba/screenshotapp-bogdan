@@ -19,6 +19,9 @@ final class AppModel: ObservableObject {
     }
 
     @Published var shelfState: ShelfState = .expanded
+    @Published var shelfIsInactive = false
+    @Published private(set) var activeShelfHotKey: HotKey?
+    @Published private(set) var shelfHotKeyError: String?
     @Published var selectedItemID: UUID?
     @Published var statusMessage = "Готово к захвату"
     @Published private(set) var isBusy = false
@@ -28,6 +31,7 @@ final class AppModel: ObservableObject {
     let history: HistoryStore
     let captureService = CaptureService()
     let hotKeyService = GlobalHotKeyService()
+    let shelfHotKeyService = GlobalHotKeyService(signature: 0x53485354)
 
     var shelfController: ShelfPanelController?
     var editorController: EditorWindowController?
@@ -50,8 +54,8 @@ final class AppModel: ObservableObject {
     private var lastCaptureWasScrolling = false
     private var isCheckingScreenCapturePermission = false
 
-    init() {
-        let preferences = AppPreferences()
+    init(preferences: AppPreferences? = nil) {
+        let preferences = preferences ?? AppPreferences()
         self.preferences = preferences
         self.history = HistoryStore(
             folderURL: preferences.captureFolder,
@@ -70,11 +74,29 @@ final class AppModel: ObservableObject {
 
     func start() {
         registerHotKey()
+        _ = registerShelfHotKey(preferences.shelfHotKey)
         shelfController?.updatePresentation()
         do {
             try history.reload()
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func registerShelfHotKey(_ hotKey: HotKey) -> Bool {
+        do {
+            try shelfHotKeyService.register(hotKey) { [weak self] in
+                guard let self, !self.isBusy else { return }
+                self.shelfController?.toggleNearPointer()
+            }
+            activeShelfHotKey = shelfHotKeyService.registeredHotKey
+            preferences.shelfHotKey = hotKey
+            shelfHotKeyError = nil
+            return true
+        } catch {
+            shelfHotKeyError = error.localizedDescription
+            return false
         }
     }
 

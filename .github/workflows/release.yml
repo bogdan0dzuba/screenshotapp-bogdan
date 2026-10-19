@@ -20,6 +20,7 @@ jobs:
           swift run --disable-sandbox ReliabilityChecks
           bash Tests/HotKeyRegistrationChecks.sh
           bash Tests/SelectionFocusChecks.sh
+          bash Tests/ShelfHotKeyChecks.sh
 
       - name: Проверить интерфейсные контракты
         run: |
