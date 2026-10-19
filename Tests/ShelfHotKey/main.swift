@@ -95,9 +95,16 @@ struct ShelfHotKeyChecks {
         precondition(model.shelfIsInactive && panel.isVisible && model.shelfState == .expanded)
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency { precondition(panel.alphaValue == 0.22) }
         stage("local click dispatch")
-        let click = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: -1, y: -1),
+        let clickPoint = CGPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
+        let click = NSEvent.mouseEvent(with: .leftMouseDown, location: clickPoint,
             modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
             eventNumber: 1, clickCount: 1, pressure: 1)!
+        let release = NSEvent.mouseEvent(with: .leftMouseUp, location: clickPoint,
+            modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            eventNumber: 2, clickCount: 1, pressure: 0)!
+        // AppKit on macOS 15 can enter a tracking loop inside sendEvent(mouseDown).
+        // Queue the matching release so the synthetic click can finish there too.
+        NSApp.postEvent(release, atStart: false)
         NSApp.sendEvent(click)
         precondition(!model.shelfIsInactive && panel.alphaValue == 1, "A local click must restore the inactive shelf")
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification,
