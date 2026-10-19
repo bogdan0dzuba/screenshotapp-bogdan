@@ -7,6 +7,11 @@ import ScreenshotCore
 struct ShelfHotKeyChecks {
     @MainActor
     static func main() async throws {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+            fputs("ShelfHotKeyChecks: window interaction timed out after 20 seconds\n", stderr)
+            exit(124)
+        }
+        stage("application initialization")
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         NSApp.finishLaunching()
@@ -42,14 +47,17 @@ struct ShelfHotKeyChecks {
         try probe.register(.defaultShelf) {}
         probe.unregister()
 
+        stage("model initialization")
         let model = AppModel(preferences: prefs)
         let saved = model.preferences.shelfHotKey
         defer { model.preferences.shelfHotKey = saved }
+        stage("panel initialization")
         let shelf = ShelfPanelController(model: model, onOpenSettings: {})
         model.shelfController = shelf
         model.shelfState = .collapsed
         shelf.updatePresentation()
         let panel = NSApp.windows.first { $0.title == AppIdentity.displayName }!
+        stage("Carbon registration and toggle")
         let key = HotKey(key: "F18", keyCode: 79, modifiers: [.control, .option, .shift, .command])
         precondition(model.registerShelfHotKey(key))
         try dispatch(id: 1)
@@ -65,9 +73,11 @@ struct ShelfHotKeyChecks {
         try dispatch(id: 1)
         precondition(model.shelfState == .expanded)
         precondition(panel.frame == oldFrame)
+        stage("closed-window recovery")
         panel.orderOut(nil)
         try dispatch(id: 1)
         precondition(model.shelfState == .expanded && panel.isVisible, "Hidden expanded windows must reopen")
+        stage("conflict rollback")
         let blocker = GlobalHotKeyService(signature: 0x54455354)
         let occupied = HotKey(key: "F19", keyCode: 80, modifiers: [.control, .option, .shift, .command])
         try blocker.register(occupied) {}
@@ -78,11 +88,13 @@ struct ShelfHotKeyChecks {
         try dispatch(id: 1)
         let transparency = model.preferences.shelfTransparency
         let glass = model.preferences.expandedTrueLiquidGlass
+        stage("workspace inactivity")
         let other = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first!
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification,
             object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: other])
         precondition(model.shelfIsInactive && panel.isVisible && model.shelfState == .expanded)
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency { precondition(panel.alphaValue == 0.22) }
+        stage("local click dispatch")
         let click = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: -1, y: -1),
             modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
             eventNumber: 1, clickCount: 1, pressure: 1)!
@@ -96,12 +108,18 @@ struct ShelfHotKeyChecks {
             object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
         precondition(!model.shelfIsInactive && panel.alphaValue == 1)
         precondition(model.preferences.shelfTransparency == transparency && model.preferences.expandedTrueLiquidGlass == glass)
+        stage("suspended capture")
         shelf.suspend()
         try dispatch(id: 1)
         precondition(!panel.isVisible, "Hotkey must not interrupt capture suspension")
         model.shelfHotKeyService.unregister()
         blocker.unregister()
         print("ShelfHotKeyChecks: OK (Carbon toggle, conflict rollback, pointer bounds, hidden recovery, inactive glass and preference preservation)")
+    }
+
+    static func stage(_ value: String) {
+        print("ShelfHotKeyChecks stage: \(value)")
+        fflush(stdout)
     }
 
     static func dispatch(id: UInt32, signature: OSType = 0x53485354) throws {
