@@ -45,8 +45,8 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
             defer: false
         )
         super.init()
-        panel.level = .floating
-        panel.isFloatingPanel = true
+        panel.level = .normal
+        panel.isFloatingPanel = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -119,8 +119,17 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
     private func setInactive(_ inactive: Bool) {
         let inactive = inactive && model.shelfState == .expanded
         model.shelfIsInactive = inactive
-        // Fade the screenshot as well as its glass background, so other windows remain visible.
-        panel.alphaValue = inactive && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 0.22 : 1
+        panel.alphaValue = 1
+        configureWindowLevel()
+        if inactive && panel.isVisible && !panel.styleMask.contains(.fullScreen) {
+            panel.orderBack(nil)
+        }
+    }
+
+    private func configureWindowLevel() {
+        let compact = model.shelfState == .collapsed && !panel.styleMask.contains(.fullScreen)
+        panel.isFloatingPanel = compact
+        panel.level = compact ? .floating : .normal
     }
 
     func toggleNearPointer() {
@@ -170,6 +179,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         }
 
         if model.shelfState != .expanded { setInactive(false) }
+        configureWindowLevel()
         switch model.shelfState {
         case .expanded:
             configureWindowChrome(
@@ -239,8 +249,7 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
             model.shelfState = .collapsed
             setInactive(false)
         }
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        configureWindowLevel()
         updatePresentation()
     }
 
@@ -268,7 +277,11 @@ final class ShelfPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(frame, display: true, animate: false)
         isApplyingPresentation = false
         hasBeenPresented = true
-        panel.orderFrontRegardless()
+        if model.shelfState == .expanded && model.shelfIsInactive {
+            panel.orderBack(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
     }
 
     private func configureWindowChrome(showsCustomControls: Bool) {

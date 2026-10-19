@@ -1,4 +1,5 @@
 import Foundation
+import ScreenshotCore
 @testable import ScreenshotApp
 
 @main
@@ -8,44 +9,33 @@ struct LiquidGlassPreferencesChecks {
         let name = "LiquidGlassPreferencesChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
-        defaults.set(0.73, forKey: "shelfTransparency")
-        let original = AppPreferences(defaults: defaults)
-        precondition(!original.trueLiquidGlass, "Existing installations must keep their appearance")
-        precondition(!original.expandedTrueLiquidGlass, "Expanded glass must be opt-in")
-        precondition(original.collapsedShelfTransparency == 0.73 && original.expandedShelfTransparency == 0.73)
-        original.trueLiquidGlass = true
-        let reopened = AppPreferences(defaults: defaults)
-        precondition(reopened.trueLiquidGlass, "Glass selection must survive relaunch")
-        precondition(!reopened.expandedTrueLiquidGlass, "Existing collapsed selection must not enable expanded glass")
-        precondition(reopened.collapsedShelfTransparency == 0.73 && reopened.expandedShelfTransparency == 0.73, "Switching glass must preserve transparency")
-        reopened.trueLiquidGlass = false
-        let restored = AppPreferences(defaults: defaults)
-        precondition(!restored.trueLiquidGlass, "Returning to the original appearance must persist")
-        precondition(restored.collapsedShelfTransparency == 0.73 && restored.expandedShelfTransparency == 0.73)
-        for (collapsed, expanded) in [(false, true), (true, true), (true, false), (false, false)] {
-            restored.trueLiquidGlass = collapsed
-            restored.expandedTrueLiquidGlass = expanded
-            let reloaded = AppPreferences(defaults: defaults)
-            precondition(reloaded.trueLiquidGlass == collapsed, "Collapsed selection must persist independently")
-            precondition(reloaded.expandedTrueLiquidGlass == expanded, "Expanded selection must persist independently")
-            precondition(reloaded.collapsedShelfTransparency == 0.73 && reloaded.expandedShelfTransparency == 0.73)
-        }
-        restored.collapsedShelfTransparency = 0.12
-        restored.expandedShelfTransparency = 0.89
+        defaults.set(0.12, forKey: "collapsedShelfTransparency")
+        defaults.set(0.30, forKey: "expandedShelfTransparency")
+        defaults.set(true, forKey: "trueLiquidGlass")
+        let migrated = AppPreferences(defaults: defaults)
+        precondition(abs(migrated.collapsedShelfTransparency - 0.4) < 0.000001)
+        precondition(migrated.expandedShelfTransparency == 1, "Old 30% becomes new 100%")
+        let reloaded = AppPreferences(defaults: defaults)
+        precondition(reloaded.collapsedShelfTransparency == migrated.collapsedShelfTransparency,
+                     "Migration must run only once")
+        reloaded.collapsedShelfTransparency = 0.12
+        reloaded.expandedShelfTransparency = 0.89
         let independent = AppPreferences(defaults: defaults)
-        precondition(independent.collapsedShelfTransparency == 0.12)
-        precondition(independent.expandedShelfTransparency == 0.89)
+        precondition(independent.collapsedShelfTransparency == 0.12 && independent.expandedShelfTransparency == 0.89)
         independent.collapsedShelfTransparency = 2
-        precondition(independent.collapsedShelfTransparency == 1)
-        precondition(independent.expandedShelfTransparency == 0.89)
         independent.expandedShelfTransparency = -1
-        precondition(independent.expandedShelfTransparency == 0)
+        precondition(independent.collapsedShelfTransparency == 1 && independent.expandedShelfTransparency == 0)
         independent.collapsedShelfTransparency = .nan
         precondition(independent.collapsedShelfTransparency == AppPreferences.defaultShelfTransparency)
-        let normalized = AppPreferences(defaults: defaults)
-        precondition(normalized.collapsedShelfTransparency == AppPreferences.defaultShelfTransparency)
-        precondition(normalized.expandedShelfTransparency == 0)
-        precondition(defaults.double(forKey: "shelfTransparency") == 0.73, "Legacy preference is preserved for rollback")
-        print("LiquidGlassPreferencesChecks: OK (legacy migration, independent values, relaunch, bounds, NaN, glass toggles)")
+        precondition(AppPreferences(defaults: defaults).collapsedShelfTransparency == AppPreferences.defaultShelfTransparency)
+        for value in [0.0, 0.1, 0.3, 0.5, 0.7, 1.0] {
+            let opacity = ShelfAppearancePolicy.backgroundOpacity(value, reduceTransparency: false)
+            precondition(opacity >= 0.7 && opacity <= 1, "Glass background must never disappear")
+            precondition(ShelfAppearancePolicy.backgroundOpacity(value, reduceTransparency: true) == 1)
+        }
+        precondition(ShelfAppearancePolicy.backgroundOpacity(1, reduceTransparency: false) == 0.7)
+        precondition(ShelfAppearancePolicy.migratedProgress(0.99) == 1)
+        precondition(defaults.bool(forKey: "trueLiquidGlass"), "Obsolete settings stay untouched for rollback")
+        print("LiquidGlassPreferencesChecks: OK (old 30% -> new 100%, one-time migration, independent values, safe opacity floor, accessibility)")
     }
 }

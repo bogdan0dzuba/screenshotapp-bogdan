@@ -30,8 +30,7 @@ final class AppPreferences: ObservableObject {
         static let shelfTransparency = "shelfTransparency" // Legacy value used once for migration.
         static let collapsedShelfTransparency = "collapsedShelfTransparency"
         static let expandedShelfTransparency = "expandedShelfTransparency"
-        static let trueLiquidGlass = "trueLiquidGlass"
-        static let expandedTrueLiquidGlass = "expandedTrueLiquidGlass"
+        static let shelfAppearanceRevision = "shelfAppearanceRevision"
         static let editorToolOrder = "editorToolOrder"
     }
 
@@ -86,25 +85,12 @@ final class AppPreferences: ObservableObject {
             defaults.set(value, forKey: Key.expandedShelfTransparency)
         }
     }
-    @Published var trueLiquidGlass: Bool {
-        didSet { defaults.set(trueLiquidGlass, forKey: Key.trueLiquidGlass) }
-    }
-    @Published var expandedTrueLiquidGlass: Bool {
-        didSet { defaults.set(expandedTrueLiquidGlass, forKey: Key.expandedTrueLiquidGlass) }
-    }
     @Published private(set) var editorToolOrder: [EditorTool]
 
     let availableLetters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
     private let defaults: UserDefaults
-    static let defaultShelfTransparency = 0.35
+    static let defaultShelfTransparency = 0.5
     static let currentHistoryFractionRevision = 2
-
-    static var supportsTrueLiquidGlass: Bool {
-#if canImport(SwiftUI, _version: 7.0)
-        if #available(macOS 26.0, *) { return true }
-#endif
-        return false
-    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -147,16 +133,18 @@ final class AppPreferences: ObservableObject {
                 storedHistoryFraction ?? ShelfSplitLayout.defaultHistoryFraction
             )
         }
-        let storedTransparency = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
-            ?? Self.defaultShelfTransparency
-        collapsedShelfTransparency = Self.clampedTransparency(
-            (defaults.object(forKey: Key.collapsedShelfTransparency) as? NSNumber)?.doubleValue ?? storedTransparency
-        )
-        expandedShelfTransparency = Self.clampedTransparency(
-            (defaults.object(forKey: Key.expandedShelfTransparency) as? NSNumber)?.doubleValue ?? storedTransparency
-        )
-        trueLiquidGlass = defaults.object(forKey: Key.trueLiquidGlass) as? Bool ?? false
-        expandedTrueLiquidGlass = defaults.object(forKey: Key.expandedTrueLiquidGlass) as? Bool ?? false
+        let legacy = (defaults.object(forKey: Key.shelfTransparency) as? NSNumber)?.doubleValue
+        let isLegacyAppearance = defaults.integer(forKey: Key.shelfAppearanceRevision) < 1
+        func loadTransparency(_ key: String) -> Double {
+            guard let saved = (defaults.object(forKey: key) as? NSNumber)?.doubleValue ?? legacy else {
+                return Self.defaultShelfTransparency
+            }
+            return isLegacyAppearance
+                ? ShelfAppearancePolicy.migratedProgress(saved)
+                : Self.clampedTransparency(saved)
+        }
+        collapsedShelfTransparency = loadTransparency(Key.collapsedShelfTransparency)
+        expandedShelfTransparency = loadTransparency(Key.expandedShelfTransparency)
         editorToolOrder = Self.editorTools(
             from: EditorToolOrderPolicy.normalize(defaults.stringArray(forKey: Key.editorToolOrder) ?? [])
         )
@@ -166,6 +154,7 @@ final class AppPreferences: ObservableObject {
         defaults.set(collapsedShelfTransparency, forKey: Key.collapsedShelfTransparency)
         defaults.set(expandedShelfTransparency, forKey: Key.expandedShelfTransparency)
         defaults.set(editorToolOrder.map(\.rawValue), forKey: Key.editorToolOrder)
+        defaults.set(1, forKey: Key.shelfAppearanceRevision)
     }
 
     var hotKey: HotKey {

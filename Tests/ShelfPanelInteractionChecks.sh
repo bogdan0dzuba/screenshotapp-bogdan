@@ -111,7 +111,7 @@ require_view ".lineLimit(1)" "collapsed capture count can still wrap to a second
 require_view ".minimumScaleFactor(0.8)" "collapsed capture count cannot shrink within its fixed slot"
 require_view "ShelfMetrics.collapsedCountWidth" "collapsed capture count has no guaranteed one-line width"
 require_view "fallbackBackground(shape: Capsule(), tintOpacity: 0.38)" "fallback glass is still too dark"
-require_view "adaptiveTintOpacity(maximum: 0.24)" "collapsed glass ignores the saved transparency"
+require_view "ShelfAppearancePolicy.backgroundOpacity" "glass ignores the safe transparency range"
 reject_view "reduceTransparency ? 0.98 : 0.92" "collapsed shelf still has the old nearly opaque black scrim"
 reject_view 'Label("Скриншоты"' "expanded shelf still spends header space on an obvious title"
 require_view 'Image(systemName: "rectangle.stack.fill")' "expanded header has no compact history icon"
@@ -152,16 +152,11 @@ require_view 'NSCursor.resizeUpDown' "divider does not show the vertical resize 
 reject_view 'maxHeight: ShelfMetrics.historyMaximumHeight' "history is still capped at 144 points"
 require_view '.glassEffect(.regular, in: shape)' "expanded shelf does not use standard Liquid Glass"
 require_view '.glassEffect(.clear, in: shape)' "expanded shelf has no optional clear glass"
-require_view ': preferences.expandedTrueLiquidGlass' "expanded glass does not use its independent saved selection"
-require_view 'if trueLiquidGlass && !reduceTransparency {' "clear glass ignores its opt-in preference or system accessibility setting"
+
+
 require_view 'transparency: effectiveShelfTransparency' "glass does not react to the saved transparency preference"
-require_view '1 - transparency' "transparency preference is not mapped to the glass background"
+require_view '1 - appearanceProgress' "transparency preference is not mapped to the glass background"
 reject_view '.opacity(model.preferences.shelfTransparency)' "transparency incorrectly fades text and controls"
-dark_scheme_count="$(/usr/bin/grep -Fc '.environment(\.colorScheme, .dark)' "$SHELF_VIEW" || true)"
-if [[ "$dark_scheme_count" -ne 2 ]]; then
-  echo "ShelfPanelInteractionChecks: expanded transparent shelf forces white text instead of adaptive system contrast" >&2
-  exit 1
-fi
 require_view "ZoomableCapturePreview" "expanded shelf preview cannot be magnified"
 require_view "ScrollView([.horizontal, .vertical])" "magnified shelf preview cannot be panned"
 require_view "MagnifyGesture" "expanded shelf preview has no native trackpad pinch gesture"

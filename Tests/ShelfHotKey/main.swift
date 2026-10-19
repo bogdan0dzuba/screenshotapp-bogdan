@@ -67,7 +67,7 @@ struct ShelfHotKeyChecks {
         precondition(screen.visibleFrame.contains(panel.frame))
         let oldFrame = panel.frame
         try dispatch(id: 1)
-        precondition(model.shelfState == .collapsed && panel.isVisible && panel.alphaValue == 1)
+        precondition(model.shelfState == .collapsed && panel.isVisible && panel.alphaValue == 1 && panel.level == .floating)
         try dispatch(id: 1, signature: 0x53485346)
         precondition(model.shelfState == .collapsed, "Capture events must not toggle the shelf")
         try dispatch(id: 1)
@@ -88,13 +88,27 @@ struct ShelfHotKeyChecks {
         try dispatch(id: 1)
         let collapsedTransparency = model.preferences.collapsedShelfTransparency
         let expandedTransparency = model.preferences.expandedShelfTransparency
-        let glass = model.preferences.expandedTrueLiquidGlass
+        let frontWindow = NSWindow(contentRect: panel.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        frontWindow.isReleasedWhenClosed = false
+        frontWindow.title = "Foreground window ordering check"
+        frontWindow.orderFrontRegardless()
         stage("workspace inactivity")
         let other = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first!
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification,
             object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: other])
         precondition(model.shelfIsInactive && panel.isVisible && model.shelfState == .expanded)
-        if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency { precondition(panel.alphaValue == 0.22) }
+        precondition(panel.alphaValue == 1, "Inactive text and screenshots must not become ghosts")
+        precondition(panel.level == .normal && !panel.isFloatingPanel, "Expanded shelf must not overlay the active app")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        let ordered = (CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? [])
+            .compactMap { $0[kCGWindowNumber as String] as? Int }
+        guard let foregroundIndex = ordered.firstIndex(of: frontWindow.windowNumber),
+              let shelfIndex = ordered.firstIndex(of: panel.windowNumber) else {
+            preconditionFailure("Both test windows must be present in the window server")
+        }
+        precondition(foregroundIndex < shelfIndex,
+                     "The foreground window must remain in front of the inactive shelf")
+        frontWindow.close()
         stage("local click dispatch")
         let clickPoint = CGPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
         let click = NSEvent.mouseEvent(with: .leftMouseDown, location: clickPoint,
@@ -116,7 +130,7 @@ struct ShelfHotKeyChecks {
             object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
         precondition(!model.shelfIsInactive && panel.alphaValue == 1)
         precondition(model.preferences.collapsedShelfTransparency == collapsedTransparency &&
-                     model.preferences.expandedShelfTransparency == expandedTransparency && model.preferences.expandedTrueLiquidGlass == glass)
+                     model.preferences.expandedShelfTransparency == expandedTransparency)
         stage("suspended capture")
         shelf.suspend()
         try dispatch(id: 1)

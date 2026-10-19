@@ -148,18 +148,9 @@ struct SettingsView: View {
                 }
             }
             Section("Внешний вид") {
-                Toggle("True Liquid Glass - свернутая полка", isOn: $preferences.trueLiquidGlass)
-                    .disabled(!AppPreferences.supportsTrueLiquidGlass)
-                Toggle("True Liquid Glass - развернутая полка", isOn: $preferences.expandedTrueLiquidGlass)
-                    .disabled(!AppPreferences.supportsTrueLiquidGlass)
-                Text(AppPreferences.supportsTrueLiquidGlass
-                     ? "Прозрачное стекло с бликами. Виды полки настраиваются отдельно; выключите режим, чтобы вернуть прежний вид."
-                     : "True Liquid Glass доступен в macOS 26 и новее.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 transparencySlider("Прозрачность свернутой полки", value: $preferences.collapsedShelfTransparency)
                 transparencySlider("Прозрачность развернутой полки", value: $preferences.expandedShelfTransparency)
-                Text("0% - плотнее, 100% - прозрачнее. Текст, иконки и снимки не бледнеют.")
+                Text("0% - плотное стекло, 100% - легкое стекло в безопасном диапазоне. Кнопки и снимки не бледнеют.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
