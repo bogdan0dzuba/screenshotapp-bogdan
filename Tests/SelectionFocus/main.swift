@@ -18,6 +18,8 @@ struct SelectionFocusChecks {
         try require(!controller.hasPendingSelection, "denied access must not open the live selector")
         let context = CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
         let image = context.makeImage()!
         let first = Task { @MainActor in
             try await controller.selectRegion(captureRect: CGRect(x: 0, y: 0, width: 32, height: 32), backdropImage: image)
@@ -36,6 +38,18 @@ struct SelectionFocusChecks {
         try require(panel.isVisible && panel.isKeyWindow, "recovery must reveal and focus existing selection")
         try require(controller.hasPendingSelection, "refocusing must preserve live selection")
         let view = panel.contentView!
+        // Change the live scene after focus has moved, as a dropdown would close.
+        // Both the visible backdrop and returned crop must retain the old pixels.
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        let backdrop = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: backdrop)
+        let backdropPixel = backdrop.colorAt(x: 4, y: 4)!.usingColorSpace(.deviceRGB)!
+        // AppKit can color-manage the bitmap through the display's HDR profile.
+        // Compare channel dominance instead of assuming unchanged RGB values.
+        try require(backdropPixel.greenComponent > backdropPixel.redComponent + 0.2 &&
+                    backdropPixel.greenComponent > backdropPixel.blueComponent + 0.2,
+                    "selection must display the preserved dropdown pixels after the live scene changes: \(backdropPixel) bitmap=\(backdrop.pixelsWide)x\(backdrop.pixelsHigh)")
         try require(view.acceptsFirstMouse(for: nil), "inactive selection must accept the first mouse press")
         // A standalone test process may already have been activated by LaunchServices.
         // Establish the inactive state explicitly before exercising the first drag.
@@ -57,6 +71,10 @@ struct SelectionFocusChecks {
         let selection = try await first.value
         try require(selection.rect.width == 18 && selection.rect.height == 18,
                     "NSWindow dispatch must complete the selected rectangle while the app is inactive")
+        let cropPixel = NSBitmapImageRep(cgImage: selection.image).colorAt(x: 4, y: 4)!.usingColorSpace(.deviceRGB)!
+        try require(cropPixel.greenComponent > cropPixel.redComponent + 0.2 &&
+                    cropPixel.greenComponent > cropPixel.blueComponent + 0.2,
+                    "final capture must crop the preserved frame without the blue overlay or changed live pixels")
         try require(!controller.hasPendingSelection, "successful selection must finish its session")
         let cancelled = Task { @MainActor in
             try await controller.selectRegion(captureRect: CGRect(x: 0, y: 0, width: 32, height: 32), backdropImage: image)

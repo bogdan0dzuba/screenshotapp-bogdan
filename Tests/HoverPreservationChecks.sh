@@ -42,7 +42,7 @@ require_order() {
 
 require_text "$MODEL" "case .area: captureArea()" "ordinary area capture bypasses the native area selector"
 require_text "$MODEL" "let selection = try await regionSelectionController.selectRegion(using: captureService)" \
-  "ordinary area capture does not use the native live selector"
+  "ordinary area capture bypasses the menu-preserving selector"
 require_text "$MODEL" "selectFrozenRegion(using: captureService)" \
   "scrolling capture loses its frozen hover-preserving first frame"
 require_text "$MODEL" "try captureService.write(selection.image, to: request.temporaryURL)" \
@@ -63,9 +63,9 @@ require_text "$MODEL" "firstFrame: selection.image" "scrolling capture ignores t
 python3 - "$CONTROLLER" <<'PY'
 import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text()
-live = text[text.index('func selectRegion(using '):text.index('func selectFrozenRegion(using ')]
-assert 'captureFrozenScreen' not in live, 'live hotkey must not prepare a full-screen image'
-assert live.index('selectLiveRegion(') < live.index('captureSelectedRegion('), 'pixels must be captured after live selection'
+area = text[text.index('func selectRegion(using '):text.index('func selectFrozenRegion(using ')]
+assert 'selectFrozenRegion(using: captureService)' in area, 'ordinary hotkey must freeze menus before taking keyboard focus'
+assert 'selectLiveRegion(' not in area and 'captureSelectedRegion(' not in area, 'ordinary capture must crop the preserved frame rather than recapture dismissed menus'
 assert 'withAlphaComponent(0.42)' not in text, 'full-screen dimming must remain disabled'
 PY
 
