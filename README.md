@@ -8,7 +8,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v5.61-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.61)
+[![Версия](https://img.shields.io/badge/версия-v5.62-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.62)
 [![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
 
 ## Название в 5.57
