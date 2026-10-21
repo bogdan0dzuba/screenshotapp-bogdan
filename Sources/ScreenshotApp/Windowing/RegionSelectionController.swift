@@ -26,19 +26,14 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
     }
 
     func selectRegion(using captureService: CaptureService) async throws -> RegionSelection {
-        if continuation != nil { throw CaptureError.cancelled }
-        if Task.isCancelled { throw CaptureError.cancelled }
+        if continuation != nil || Task.isCancelled { throw CaptureError.cancelled }
         try ScreenCapturePermission.requireAccess(preflight: captureService.screenCaptureAccess)
-        let screen = try screenUnderPointer()
-        let rect = try await selectLiveRegion(captureRect: captureRect(for: screen))
-        try Task.checkCancellation()
-        // Capture only after the panel has closed. The content filter also excludes
-        // this app, so WindowServer ordering cannot put the blue frame in the image.
-        let image = try await captureService.captureSelectedRegion(rect: rect)
-        return RegionSelection(rect: rect, image: image)
+        // Taking keyboard focus dismisses native menus. Freeze their pixels first,
+        // then select and crop from that frame without recapturing the desktop.
+        return try await selectFrozenRegion(using: captureService)
     }
 
-    // Scrolling keeps its frozen first frame for menus and hover content.
+    // Area and scrolling capture preserve menus in the same frozen first frame.
     func selectFrozenRegion(using captureService: CaptureService) async throws -> RegionSelection {
         if continuation != nil || Task.isCancelled { throw CaptureError.cancelled }
         let screen = try screenUnderPointer()
