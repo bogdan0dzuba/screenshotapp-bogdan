@@ -8,8 +8,12 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111111?logo=apple)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest)
-[![Версия](https://img.shields.io/badge/версия-v5.62-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.62)
+[![Версия](https://img.shields.io/badge/версия-v5.63-7B61FF)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/tag/v5.63)
 [![Скачать](https://img.shields.io/badge/Скачать-DMG%20установщик-2EA44F)](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)
+
+## Редактирование текста в 5.63
+
+В режиме «Текст» нажмите на готовую надпись и измените верхнее поле. Ввод и вставка сразу обновляют выбранный слой; изменения можно отменить и повторить. После сохранения и повторного открытия надписи остаются редактируемыми.
 
 ## Название в 5.57
 
@@ -54,6 +58,8 @@
 После захвата редактор открывается автоматически. Доступны стрелки, фигуры, текст, счетчики, свободное рисование, маркер, блюр и пикселизация. Большой снимок можно приближать pinch-жестом и перемещать.
 
 ![Редактирование снимка](docs/assets/editor-demo.gif)
+
+Для своей надписи выберите «Текст», введите или вставьте текст в верхнее поле и нажмите на снимок. Чтобы изменить готовую надпись, нажмите на нее с выбранным инструментом «Текст» и отредактируйте верхнее поле. Выбранная надпись обведена пунктиром, изменения сразу видны на снимке и поддерживают отмену и повтор.
 
 ### Длинные страницы одним PNG
 
@@ -138,7 +144,7 @@ Apple Developer Program для личного использования и ус
 
 ## Автообновление
 
-GitHub Actions проверяет проект и ARM-сборку при каждом обновлении `main`. Релиз публикуется командой `./script/publish_release.sh 5.61`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает архив обновления и никогда не передается GitHub; подпись архива записывается в `appcast.xml`. Номер сборки берется из `script/version.sh` и перед упаковкой сравнивается с последним публичным `sparkle:version`; равный или меньший номер останавливает публикацию. Приложение проверяет этот канал через Sparkle при каждом запуске и затем раз в сутки. При включенных проверке и автоматическом скачивании обычное обновление загружается, проверяется, устанавливается и перезапускает приложение; ручная проверка остается в настройках. Один Git push не публикует обновление: нужен GitHub Release с ZIP и `appcast.xml`.
+GitHub Actions проверяет проект и ARM-сборку при каждом обновлении `main`. Релиз публикуется командой `./script/publish_release.sh 5.63`: закрытый EdDSA-ключ берется из macOS Keychain, локально подписывает архив обновления и никогда не передается GitHub; подпись архива записывается в `appcast.xml`. Номер сборки берется из `script/version.sh` и перед упаковкой сравнивается с последним публичным `sparkle:version`; равный или меньший номер останавливает публикацию. Приложение проверяет этот канал через Sparkle при каждом запуске и затем раз в сутки. При включенных проверке и автоматическом скачивании обычное обновление загружается, проверяется, устанавливается и перезапускает приложение; ручная проверка остается в настройках. Один Git push не публикует обновление: нужен GitHub Release с ZIP и `appcast.xml`.
 
 Apple Developer Program для этого не требуется. Без Developer ID первая установка по-прежнему выполняется через правую кнопку -> «Открыть». При переходе со старой ad-hoc версии macOS может один раз повторно запросить «Запись экрана»; следующие выпуски используют ту же подпись и не должны сбрасывать это разрешение.
 
@@ -185,6 +191,7 @@ bash Tests/CaptureCancellationChecks.sh
 bash Tests/ScrollCaptureInteractionChecks.sh
 bash Tests/ShelfPanelInteractionChecks.sh
 bash Tests/EditorWindowInteractionChecks.sh
+bash Tests/TextEditingChecks.sh
 bash Tests/SettingsInteractionChecks.sh
 bash Tests/SettingsWindowChecks.sh
 bash Tests/LocalSigningIdentityChecks.sh

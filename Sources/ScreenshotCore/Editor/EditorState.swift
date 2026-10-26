@@ -5,6 +5,7 @@ public struct EditorState: Sendable {
     public private(set) var selectedAnnotationID: UUID?
     private var undoStack: [EditorDocument]
     private var redoStack: [EditorDocument]
+    private var textEditingAnnotationID: UUID?
 
     public init(document: EditorDocument) {
         self.document = document
@@ -30,7 +31,24 @@ public struct EditorState: Sendable {
     }
 
     public mutating func select(_ id: UUID?) {
+        endTextEditing()
         selectedAnnotationID = id
+    }
+
+    public mutating func updateSelectedText(_ text: String) {
+        guard let selectedAnnotationID,
+              let index = document.annotations.firstIndex(where: { $0.id == selectedAnnotationID }),
+              document.annotations[index].kind == .text,
+              document.annotations[index].text != text else { return }
+        if textEditingAnnotationID != selectedAnnotationID {
+            checkpoint()
+            textEditingAnnotationID = selectedAnnotationID
+        }
+        document.annotations[index].text = text
+    }
+
+    public mutating func endTextEditing() {
+        textEditingAnnotationID = nil
     }
 
     public mutating func deleteSelected() {
@@ -49,6 +67,7 @@ public struct EditorState: Sendable {
     }
 
     public mutating func undo() {
+        endTextEditing()
         guard let previous = undoStack.popLast() else { return }
         redoStack.append(document)
         document = previous
@@ -56,6 +75,7 @@ public struct EditorState: Sendable {
     }
 
     public mutating func redo() {
+        endTextEditing()
         guard let next = redoStack.popLast() else { return }
         undoStack.append(document)
         document = next
@@ -63,6 +83,7 @@ public struct EditorState: Sendable {
     }
 
     private mutating func checkpoint() {
+        endTextEditing()
         undoStack.append(document)
         redoStack.removeAll()
     }

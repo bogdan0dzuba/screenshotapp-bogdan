@@ -42,6 +42,9 @@ struct EditorCanvasView: View {
                                     .fill(.clear)
                                     .contentShape(Rectangle())
                                     .gesture(drawingGesture(size: canvasSize))
+                                if session.tool == .text {
+                                    textSelectionOverlay(size: canvasSize)
+                                }
                             }
                         }
                         .simultaneousGesture(magnificationGesture)
@@ -54,6 +57,37 @@ struct EditorCanvasView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func textSelectionOverlay(size: CGSize) -> some View {
+        let canvas = CanvasSize(width: session.imageSize.width, height: session.imageSize.height)
+        let scale = size.width / max(session.imageSize.width, 1)
+        return ForEach(session.state.document.annotations.filter { $0.kind == .text }) { annotation in
+            if let bounds = AnnotationTextLayout.bounds(for: annotation, canvasSize: canvas) {
+                let target = CGRect(
+                    x: bounds.minX * scale, y: bounds.minY * scale,
+                    width: bounds.width * scale, height: bounds.height * scale
+                ).insetBy(dx: -4, dy: -4)
+                Button {
+                    session.selectText(annotation.id)
+                } label: {
+                    Rectangle()
+                        .fill(.clear)
+                        .overlay {
+                            if session.state.selectedAnnotationID == annotation.id {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(width: target.width, height: target.height)
+                .position(x: target.midX, y: target.midY)
+                .accessibilityLabel("Редактировать текст: \(annotation.text ?? "")")
+                .help("Нажмите, чтобы изменить текст в верхнем поле")
+            }
         }
     }
 

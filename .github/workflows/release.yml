@@ -27,6 +27,9 @@ jobs:
           bash Tests/ShelfHotKeyChecks.sh
           bash Tests/LiquidGlassPreferencesChecks.sh
 
+      - name: Проверить редактирование надписей
+        run: bash Tests/TextEditingChecks.sh
+
       - name: Проверить интерфейсные контракты
         run: |
           bash Tests/CaptureMetadataChecks.sh
