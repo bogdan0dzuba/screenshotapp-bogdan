@@ -53,11 +53,22 @@ enum EditorTool: String, CaseIterable, Identifiable {
 final class EditorSession: ObservableObject {
     @Published private(set) var state: EditorState
     @Published private(set) var preview: NSImage
-    @Published var tool: EditorTool = .rectangle
+    @Published var tool: EditorTool = .rectangle {
+        didSet {
+            if tool != oldValue { state.select(nil) }
+        }
+    }
     @Published var color: RGBAColor = .red
     @Published var lineWidth = 5.0
     @Published var fontSize = 28.0
-    @Published var textValue = "Текст"
+    @Published var textValue = "Текст" {
+        didSet {
+            guard tool == .text else { return }
+            state.updateSelectedText(textValue)
+            refreshPreview()
+        }
+    }
+    @Published private(set) var textFocusRequest = UUID()
 
     let item: CaptureItem
     let windowImageSize: CGSize
@@ -94,7 +105,8 @@ final class EditorSession: ObservableObject {
         end: NormalizedPoint,
         points: [NormalizedPoint]
     ) -> Annotation? {
-        makeAnnotation(start: start, end: end, points: points, minimumRectSize: 0)
+        guard tool != .text else { return nil }
+        return makeAnnotation(start: start, end: end, points: points, minimumRectSize: 0)
     }
 
     func add(start: NormalizedPoint, end: NormalizedPoint, points: [NormalizedPoint]) {
@@ -107,6 +119,20 @@ final class EditorSession: ObservableObject {
         state.add(annotation)
         if tool == .counter { nextCounter += 1 }
         refreshPreview()
+        if tool == .text { textFocusRequest = UUID() }
+    }
+
+    func selectText(_ id: UUID) {
+        guard let annotation = state.document.annotations.first(where: { $0.id == id }),
+              annotation.kind == .text else { return }
+        tool = .text
+        state.select(id)
+        textValue = annotation.text ?? ""
+        textFocusRequest = UUID()
+    }
+
+    func finishTextEditing() {
+        state.endTextEditing()
     }
 
     private func makeAnnotation(
@@ -153,6 +179,7 @@ final class EditorSession: ObservableObject {
 
     @discardableResult
     func save() -> Bool {
+        finishTextEditing()
         do {
             let rendered = try renderCache.image(for: state.document)
             try model.history.saveRendered(rendered, document: state.document, for: item)

@@ -9,6 +9,7 @@ struct EditorView: View {
     let copyAction: () -> Void
     @State private var draggedTool: EditorTool?
     @State private var hoveredTool: EditorTool?
+    @FocusState private var textFieldIsFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +24,15 @@ struct EditorView: View {
             footer
         }
         .background(.regularMaterial)
+        .onChange(of: session.tool) { _, tool in
+            textFieldIsFocused = tool == .text
+        }
+        .onChange(of: session.textFocusRequest) { _, _ in
+            textFieldIsFocused = true
+        }
+        .onChange(of: textFieldIsFocused) { _, focused in
+            if !focused { session.finishTextEditing() }
+        }
     }
 
     private var editorToolbar: some View {
@@ -40,7 +50,14 @@ struct EditorView: View {
                         Divider().frame(height: 22)
                         TextField("Текст", text: $session.textValue)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 180)
+                            .frame(width: 240)
+                            .focused($textFieldIsFocused)
+                            .accessibilityLabel("Текст надписи")
+                            .help("Введите свой текст. Нажмите на надпись на снимке, чтобы изменить ее")
+                            .onSubmit {
+                                textFieldIsFocused = false
+                                session.finishTextEditing()
+                            }
                     }
                     Divider().frame(height: 22)
                     editorActions
