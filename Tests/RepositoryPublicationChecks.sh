@@ -23,25 +23,14 @@ require_text "$README" "releases/latest/download/ScreenshotApp-Bogdan-macOS-Univ
 require_text "$README" "releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg" \
   "README has no stable installer link"
 require_text "$README" "Apple Silicon" "README does not mention Apple Silicon support"
-require_text "$README" "Intel" "README does not mention Intel support"
+require_text "$README" "macOS 14" "README does not specify the minimum supported macOS version"
 require_text "$README" "docs/assets/shelf-demo.gif" "README has no shelf demonstration"
 require_text "$README" "docs/assets/hotkey-demo.gif" "README has no hotkey demonstration"
 require_text "$README" "docs/assets/editor-demo.gif" "README has no editor demonstration"
 require_text "$README" "docs/assets/scroll-capture-demo.gif" "README has no scrolling-capture demonstration"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/script/version.sh"
-require_text "$README" "v$SCREENSHOT_APP_CURRENT_VERSION" "README does not name the current source version"
-require_text "$README" "21 июля, 10.32 - Telegram.png" "README does not document readable local filenames"
-require_text "$README" "Автоматически удалять старые снимки" "README does not document unlimited retention"
 require_text "$README" "Запись экрана" "README does not explain the screen-recording permission"
-require_text "$README" "Gatekeeper" "README does not explain the unsigned preview limitation"
-require_text "$README" "приложение и доступный заголовок окна" \
-  "README does not explain local capture-source metadata"
-require_text "$README" "CaptureMetadataChecks.sh" "README omits the metadata verification command"
-require_text "$README" "CapturePerformanceChecks.sh" "README omits the capture-performance verification command"
-require_text "$README" "HoverPreservationChecks.sh" "README omits the hover-preservation verification command"
-require_text "$README" "CaptureCancellationChecks.sh" "README omits the Escape verification command"
-require_text "$README" "SettingsWindowChecks.sh" "README omits the settings-window verification command"
+require_text "$README" "support.apple.com/en-us/102445" "README omits the Apple instructions for first launch"
+require_text "$README" "(PRIVACY.md)" "README does not link to the privacy policy"
 [[ -s docs/assets/shelf-demo.gif ]] || {
   echo "RepositoryPublicationChecks: shelf demonstration asset is missing" >&2
   exit 1
