@@ -1,0 +1,33 @@
+<Window x:Class="ScreenshotApp.Windows.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Скриншутер · Редактор" Width="1000" Height="720" MinWidth="500" MinHeight="390"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <WrapPanel Margin="0,0,0,10">
+            <RadioButton x:Name="ArrowTool" Content="Стрелка" GroupName="Tool" IsChecked="True" />
+            <RadioButton x:Name="TextTool" Content="Текст" GroupName="Tool" />
+            <RadioButton x:Name="BlurTool" Content="Размытие" GroupName="Tool" />
+            <Button x:Name="UndoButton" Content="Отменить" Click="UndoClick" Margin="0,2,8,2" />
+            <Button Content="Копировать" Click="CopyClick" Margin="0,2,8,2" />
+            <Button Content="Сохранить PNG" Click="SaveClick" Margin="0,2,0,2"
+                    Style="{StaticResource PrimaryButton}" />
+        </WrapPanel>
+
+        <Border Grid.Row="1" Background="#E2E8F1" BorderBrush="#D4DDEB" BorderThickness="1"
+                CornerRadius="6" Padding="12" ClipToBounds="True">
+            <Viewbox x:Name="Preview" Stretch="Uniform" StretchDirection="DownOnly" />
+        </Border>
+
+        <DockPanel Grid.Row="2" Margin="0,8,0,0">
+            <TextBlock DockPanel.Dock="Right" x:Name="Dimensions" Margin="12,0,0,0" />
+            <TextBlock x:Name="Status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        </DockPanel>
+    </Grid>
+</Window>

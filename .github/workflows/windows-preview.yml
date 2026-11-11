@@ -1,0 +1,102 @@
+name: Windows preview
+
+on:
+  push:
+    branches: [codex/windows-preview]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            rid: win-x64
+          - runner: windows-11-arm
+            rid: win-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RID: ${{ matrix.rid }}
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish and zip
+        run: |
+          dotnet --version
+          $name = "ScreenshotApp-Bogdan-0.1.0-$env:RID"
+          $appDir = Join-Path "$env:RUNNER_TEMP/publish" $name
+          $output = Join-Path $env:RUNNER_TEMP 'delivery'
+          New-Item -ItemType Directory -Path $output | Out-Null
+          dotnet publish windows/ScreenshotApp.Windows -c Release -r $env:RID --self-contained true -o $appDir -warnaserror
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item windows/README.md "$appDir/README.md"
+          $zip = Join-Path $output "$name.zip"
+          Compress-Archive -LiteralPath $appDir -DestinationPath $zip
+          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  $name.zip" | Set-Content -Encoding ascii "$zip.sha256"
+          @(
+            "Commit: $env:GITHUB_SHA",
+            "Runner: $((Get-CimInstance Win32_OperatingSystem).Caption) $([Environment]::OSVersion.Version)",
+            "Architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)",
+            ".NET SDK: $(dotnet --version)",
+            "SHA-256: $sha"
+          ) | Tee-Object -FilePath "$output/build.txt" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "ZIP_PATH=$zip" >> $env:GITHUB_ENV
+
+      - name: Launch the EXE extracted from the ZIP
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'extracted'
+          Expand-Archive -LiteralPath $env:ZIP_PATH -DestinationPath $dir
+          $exe = Get-ChildItem $dir -Filter ScreenshotApp-Bogdan.exe -Recurse -File
+          if (@($exe).Count -ne 1) { throw 'Expected exactly one application EXE' }
+          $expected = if ($env:RID -eq 'win-x64') { 0x8664 } else { 0xaa64 }
+          $bytes = [IO.File]::ReadAllBytes($exe.FullName)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ([BitConverter]::ToUInt16($bytes, $pe + 4) -ne $expected) { throw 'Unexpected PE architecture' }
+          $process = Start-Process $exe.FullName -PassThru
+          try {
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $process.Refresh()
+              if ($process.HasExited) { throw "Application exited with $($process.ExitCode)" }
+              if ($process.MainWindowHandle -ne 0) { break }
+              Start-Sleep -Milliseconds 250
+            }
+            if ($process.MainWindowHandle -eq 0) { throw 'Application did not open a window' }
+            Write-Output "PASS packaged EXE opened: $($process.MainWindowTitle)"
+            $null = $process.CloseMainWindow()
+            if (!$process.WaitForExit(5000) -or $process.ExitCode -ne 0) { throw 'Application did not exit cleanly' }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id }
+          }
+
+      - name: Verify capture, rendering, and transfer on Windows
+        run: |
+          dotnet run --project windows/SmokeChecks -c Release -r $env:RID 2>&1 | Tee-Object "$env:RUNNER_TEMP/delivery/smoke.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload ZIP and build evidence
+        if: ${{ !cancelled() && env.ZIP_PATH != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenshotApp-Bogdan-0.1.0-${{ matrix.rid }}
+          path: ${{ runner.temp }}/delivery/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

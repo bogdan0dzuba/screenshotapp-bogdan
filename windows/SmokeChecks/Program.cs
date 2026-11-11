@@ -1,0 +1,222 @@
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using ScreenshotApp.Windows;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main()
+    {
+        var app = new App();
+        app.InitializeComponent();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        int exitCode = 1;
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        dispatcher.InvokeAsync(async () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"ScreenshotApp-smoke-{Guid.NewGuid():N}");
+            try
+            {
+                Console.WriteLine($"OS {Environment.OSVersion.Version}; process {RuntimeInformation.ProcessArchitecture}");
+                await CheckAsync(app, new LocalStore(root));
+                exitCode = 0;
+            }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine(error);
+            }
+            finally
+            {
+                dispatcher.InvokeShutdown();
+            }
+        });
+        Dispatcher.Run();
+        return exitCode;
+    }
+
+    private static async Task CheckAsync(App app, LocalStore store)
+    {
+        var source = Raster.Render(150, 100, drawing =>
+        {
+            drawing.DrawRectangle(Brushes.White, null, new Rect(0, 0, 150, 100));
+            drawing.DrawRectangle(Brushes.Black, null, new Rect(105, 0, 10, 100));
+        });
+        var document = new ScreenshotDocument(source);
+        document.AddArrow(new Point(10, 50), new Point(85, 50));
+        document.AddText(new Point(6, 6), "Тест PNG");
+        document.AddBlur(new Rect(95, 20, 30, 30));
+        var edited = document.Render();
+        Require(Pixel(edited, 35, 50).R > Pixel(edited, 35, 50).B, "Arrow color");
+        Require(Pixel(edited, 7, 14) == Colors.Black, "Text background");
+        byte blurred = Pixel(edited, 108, 32).R;
+        Require(blurred is > 10 and < 245, $"Blur mixed adjacent pixels ({blurred})");
+        Require(Pixel(edited, 108, 60) == Colors.Black, "Blur stayed inside selection");
+        document.Undo();
+        Require(Pixel(document.Render(), 108, 32) == Colors.Black, "Undo restored pixels");
+        document.Undo();
+        document.Undo();
+        Require(!document.CanUndo && document.Render() == source, "Undo restored original");
+
+        string path = store.NewCapturePath();
+        LocalStore.SavePng(path, source);
+        LocalStore.SavePng(path, edited);
+        var restored = LocalStore.OpenPng(path);
+        Require(restored.PixelWidth == 150 && restored.PixelHeight == 100 &&
+                Pixel(restored, 108, 32).R == blurred, "PNG round trip at full resolution");
+        Require(store.Recent().Single() == path, "Shelf found exported PNG");
+        Require(((string[])LocalStore.FileDragData(path).GetData(DataFormats.FileDrop)).Single() == path,
+            "FileDrop payload contains PNG path");
+
+        LocalStore.CopyImage(restored);
+        var clipboard = Clipboard.GetDataObject();
+        using var stream = clipboard?.GetData("PNG", false) as Stream;
+        Require(stream is not null, "Clipboard PNG format is available");
+        var png = new PngBitmapDecoder(stream!, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+        Require(Pixel(png, 108, 32).R == blurred, "Clipboard PNG has edited pixels");
+        Require(Clipboard.GetImage()?.PixelWidth == 150, "Clipboard image format is available");
+        File.Delete(path);
+        Console.WriteLine("PASS arrow, text, regional blur, undo, PNG overwrite, clipboard, shelf, FileDrop payload");
+
+        var saved = new HotKey(true, true, true, Key.F8);
+        var reserved = new HotKey(true, true, true, Key.F9);
+        using var first = new HwndSource(new HwndSourceParameters("Hotkey check"));
+        using var second = new HwndSource(new HwndSourceParameters("Hotkey conflict check"));
+        using (var registration = new HotKeyRegistration(first, () => { }))
+        using (var competing = new HotKeyRegistration(second, () => { }))
+        {
+            Require(registration.TrySet(saved), "Registered test hotkey");
+            Require(competing.TrySet(reserved), "Registered competing hotkey");
+            Require(!registration.TrySet(reserved) && registration.Current == saved,
+                "Registration retained existing hotkey after conflict");
+        }
+        store.SaveHotKey(saved);
+        Require(store.LoadHotKey() == saved, "Hotkey setting round trip");
+        Console.WriteLine("PASS Win32 hotkey registration, conflict recovery, persisted setting");
+
+        var home = new MainWindow(store);
+        home.Show();
+        var marker = new Window
+        {
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize,
+            Topmost = true, ShowInTaskbar = false, Left = 40, Top = 40, Width = 320, Height = 250,
+            Background = Brushes.LimeGreen
+        };
+        marker.Show();
+        marker.Activate();
+        await Task.Delay(300);
+        Native.DwmFlush();
+        Point start = marker.PointToScreen(new Point(20, 25));
+        Point end = marker.PointToScreen(new Point(170, 125));
+        var area = new Int32Rect((int)start.X, (int)start.Y, (int)(end.X - start.X), (int)(end.Y - start.Y));
+        var screen = DesktopSnapshot.Capture().Crop(area);
+        var screenPixel = Pixel(screen, 12, 12);
+        Require(screenPixel == Colors.LimeGreen, $"GDI captured desktop marker window (pixel {screenPixel})");
+
+        MoveCursor(start);
+        SendKeys(0x11, 0x12, 0x10, 0x77);
+        await WaitUntil(() => app.Windows.Cast<Window>().Count(window => window.IsVisible) > 2,
+            "Region overlay opened via global hotkey");
+        marker.Topmost = false;
+        await Task.Delay(150);
+        SendMouse(0x0002);
+        await Task.Delay(100);
+        MoveCursor(end);
+        await Task.Delay(100);
+        SendMouse(0x0004);
+        await WaitUntil(() => app.Windows.OfType<EditorWindow>().Any(window => window.IsVisible) && store.Recent().Any(),
+            "Editor opened and automatically saved PNG after selection");
+        var capture = LocalStore.OpenPng(store.Recent().Single());
+        Require(capture.PixelWidth == area.Width && capture.PixelHeight == area.Height &&
+                Pixel(capture, 12, 12) == Colors.LimeGreen, "Selected PNG contains the original screen pixels");
+        Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height})");
+    }
+
+    private static Color Pixel(BitmapSource bitmap, int x, int y)
+    {
+        var pixel = new byte[4];
+        new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0)
+            .CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+        return Color.FromArgb(pixel[3], pixel[2], pixel[1], pixel[0]);
+    }
+
+    private static async Task WaitUntil(Func<bool> test, string description)
+    {
+        for (int attempt = 0; attempt < 100; attempt++)
+        {
+            if (test())
+                return;
+            await Task.Delay(50);
+        }
+        throw new InvalidOperationException(description);
+    }
+
+    private static void Require(bool result, string description)
+    {
+        if (!result)
+            throw new InvalidOperationException(description);
+    }
+
+    private static void MoveCursor(Point point) =>
+        Require(SetCursorPos((int)point.X, (int)point.Y), "Set cursor position");
+
+    private static void SendKeys(params ushort[] keys)
+    {
+        var inputs = keys.Select(key => KeyInput(key, 0)).Concat(keys.Reverse().Select(key => KeyInput(key, 2))).ToArray();
+        Require(SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()) == inputs.Length,
+            "Send keyboard input");
+    }
+
+    private static Input KeyInput(ushort key, uint flags) => new()
+    {
+        Type = 1, Data = new InputData { Keyboard = new KeyboardInput { Key = key, Flags = flags } }
+    };
+
+    private static void SendMouse(uint flags)
+    {
+        Input[] inputs = [new() { Data = new InputData { Mouse = new MouseInput { Flags = flags } } }];
+        Require(SendInput(1, inputs, Marshal.SizeOf<Input>()) == 1, "Send mouse input");
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint count, Input[] inputs, int size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetCursorPos(int x, int y);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Type;
+        public InputData Data;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputData
+    {
+        [FieldOffset(0)] public MouseInput Mouse;
+        [FieldOffset(0)] public KeyboardInput Keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X, Y;
+        public uint Data, Flags, Time;
+        public nuint ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput
+    {
+        public ushort Key, ScanCode;
+        public uint Flags, Time;
+        public nuint ExtraInfo;
+    }
+}
