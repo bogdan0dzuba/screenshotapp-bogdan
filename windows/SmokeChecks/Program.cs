@@ -143,15 +143,23 @@ internal static class Program
         marker.Topmost = false;
         await Task.Delay(150);
         SendMouse(0x0002);
-        await Task.Delay(100);
-        MoveCursor(end);
-        await Task.Delay(100);
-        SendMouse(0x0004);
+        try
+        {
+            await WaitUntil(() => Mouse.Captured is Window overlay && overlay != home && overlay != marker,
+                "Selection overlay received the initial mouse press");
+            MoveCursor(end);
+        }
+        finally
+        {
+            SendMouse(0x0004);
+        }
         await WaitUntil(() => app.Windows.OfType<EditorWindow>().Any(window => window.IsVisible) && store.Recent().Any(),
             "Editor opened and automatically saved PNG after selection");
         var capture = LocalStore.OpenPng(store.Recent().Single());
-        Require(capture.PixelWidth == area.Width && capture.PixelHeight == area.Height &&
-                Pixel(capture, 12, 12) == Colors.LimeGreen, "Selected PNG contains the original screen pixels");
+        Require(capture.PixelWidth == area.Width && capture.PixelHeight == area.Height,
+            $"Selected PNG measured {capture.PixelWidth}×{capture.PixelHeight}, expected {area.Width}×{area.Height}");
+        Color capturedPixel = Pixel(capture, 12, 12);
+        Require(capturedPixel == Colors.LimeGreen, $"Selected PNG pixel is {capturedPixel}, expected {Colors.LimeGreen}");
         Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height})");
 
         app.Windows.OfType<EditorWindow>().Single().Close();
