@@ -70,8 +70,8 @@ internal static class Program
         Require(restored.PixelWidth == 150 && restored.PixelHeight == 100 &&
                 Pixel(restored, 108, 32).R == blurred, "PNG round trip at full resolution");
         Require(store.Recent().Single() == path, "Shelf found exported PNG");
-        Require(((string[])LocalStore.FileDragData(path).GetData(DataFormats.FileDrop)).Single() == path,
-            "FileDrop payload contains PNG path");
+        var files = LocalStore.FileDragData(path).GetData(DataFormats.FileDrop) as string[];
+        Require(files is [var pngPath] && pngPath == path, "FileDrop payload contains PNG path");
 
         LocalStore.CopyImage(restored);
         var clipboard = Clipboard.GetDataObject();
@@ -109,14 +109,24 @@ internal static class Program
         };
         marker.Show();
         marker.Activate();
-        await Task.Delay(300);
-        Native.DwmFlush();
         Point start = marker.PointToScreen(new Point(20, 25));
         Point end = marker.PointToScreen(new Point(170, 125));
         var area = new Int32Rect((int)start.X, (int)start.Y, (int)(end.X - start.X), (int)(end.Y - start.Y));
-        var screen = DesktopSnapshot.Capture().Crop(area);
-        var screenPixel = Pixel(screen, 12, 12);
-        Require(screenPixel == Colors.LimeGreen, $"GDI captured desktop marker window (pixel {screenPixel})");
+        nint markerHandle = new WindowInteropHelper(marker).Handle;
+        Console.WriteLine($"Marker at {start}–{end}; DPI {GetDpiForWindow(markerHandle)}; " +
+            $"monitors {string.Join("; ", Native.Monitors())}");
+        Color screenPixel = default;
+        await WaitUntil(() =>
+        {
+            Native.DwmFlush();
+            screenPixel = Pixel(DesktopSnapshot.Capture().Crop(area), 12, 12);
+            return screenPixel == Colors.LimeGreen;
+        }, () =>
+        {
+            nint hit = WindowFromPoint(new NativePoint { X = area.X + 12, Y = area.Y + 12 });
+            return $"GDI marker mismatch: {screenPixel}; foreground is marker: {GetForegroundWindow() == markerHandle}; " +
+                   $"window at pixel is marker: {hit == markerHandle}";
+        });
 
         MoveCursor(start);
         SendKeys(0x11, 0x12, 0x10, 0x77);
@@ -145,7 +155,9 @@ internal static class Program
         return Color.FromArgb(pixel[3], pixel[2], pixel[1], pixel[0]);
     }
 
-    private static async Task WaitUntil(Func<bool> test, string description)
+    private static Task WaitUntil(Func<bool> test, string description) => WaitUntil(test, () => description);
+
+    private static async Task WaitUntil(Func<bool> test, Func<string> describeFailure)
     {
         for (int attempt = 0; attempt < 100; attempt++)
         {
@@ -153,7 +165,7 @@ internal static class Program
                 return;
             await Task.Delay(50);
         }
-        throw new InvalidOperationException(description);
+        throw new InvalidOperationException(describeFailure());
     }
 
     private static void Require(bool result, string description)
@@ -189,6 +201,21 @@ internal static class Program
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern nint WindowFromPoint(NativePoint point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X, Y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Input
