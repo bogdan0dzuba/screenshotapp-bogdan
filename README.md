@@ -1,19 +1,22 @@
 # Скриншутер
 
-Приложение для снимков экрана на Mac с редактором и прокручиваемым захватом. Снимки и распознавание текста остаются на Mac. Аккаунт не нужен.
+**Выделите область, добавьте подпись или размойте личное и перетащите готовый PNG прямо в чат.**
+
+Скриншутер открывает редактор сразу после захвата и хранит недавние снимки на полке. Снимки и распознавание текста остаются на Mac.
 
 **[Скачать DMG](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.dmg)** · [ZIP](https://github.com/bogdan0dzuba/screenshotapp-bogdan/releases/latest/download/ScreenshotApp-Bogdan-macOS-Universal.zip)
 
 Требуется **Apple Silicon и macOS 14 или новее**.
 
+<img src="docs/assets/editor-demo.gif" width="560" alt="Демонстрация стрелок, текста и размытия в редакторе">
+
 ## Что умеет
 
-- Снимки области, окна и всего экрана. Хоткей захвата можно изменить.
-- Длинные снимки с прокруткой и автоматической склейкой в один PNG.
-- Редактор со стрелками, текстом и размытием. Распознавание русского и английского текста.
-- Полка последних снимков для копирования и перетаскивания в другие приложения.
+- Снимать область по своему хоткею, а окно или весь экран — из меню.
+- Склеивать длинные страницы в один PNG.
+- Копировать текст со снимка на русском и английском.
 
-[Демо полки](docs/assets/shelf-demo.gif) · [Хоткей](docs/assets/hotkey-demo.gif) · [Редактор](docs/assets/editor-demo.gif) · [Прокрутка](docs/assets/scroll-capture-demo.gif)
+[Демо полки](docs/assets/shelf-demo.gif) · [Хоткей](docs/assets/hotkey-demo.gif) · [Прокрутка](docs/assets/scroll-capture-demo.gif)
 
 ## Установка и первый снимок
 
