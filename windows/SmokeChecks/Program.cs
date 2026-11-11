@@ -106,48 +106,62 @@ internal static class Program
 
         var home = new MainWindow(store);
         home.Show();
-        var marker = new Window
+        await CheckDesktopCaptureAsync(app, home, store);
+
+        var target = new Window
         {
-            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize,
-            Topmost = true, ShowInTaskbar = false, Left = 40, Top = 40, Width = 320, Height = 250,
-            Content = new Border { Background = Brushes.LimeGreen }
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Background = Brushes.White
         };
-        marker.Show();
-        marker.Activate();
-        Point start = marker.PointToScreen(new Point(20, 25));
-        Point end = marker.PointToScreen(new Point(170, 125));
-        var area = new Int32Rect((int)start.X, (int)start.Y, (int)(end.X - start.X), (int)(end.Y - start.Y));
-        nint markerHandle = new WindowInteropHelper(marker).Handle;
-        Console.WriteLine($"Marker at {start}–{end}; DPI {GetDpiForWindow(markerHandle)}; " +
-            $"monitors {string.Join("; ", Native.Monitors())}");
-        Color screenPixel = default;
+        target.Show();
+        await CheckShelfDragAsync(home, target, store.Recent().Single());
+    }
+
+    private static async Task CheckDesktopCaptureAsync(App app, MainWindow home, LocalStore store)
+    {
+        var primary = Native.Monitors().Single(rect => rect.X <= 0 && rect.X + rect.Width > 0 && rect.Y <= 0 && rect.Y + rect.Height > 0);
+        using var left = new ScreenMarker(40, 40, 90, 190, Colors.LimeGreen);
+        using var right = new ScreenMarker(130, 40, 100, 190, Colors.Tomato);
+        var area = new Int32Rect(60, 65, 150, 100);
+        Require(area.X + area.Width < primary.X + primary.Width && area.Y + area.Height < primary.Y + primary.Height,
+            $"Primary monitor accommodates test markers ({primary})");
+        var samples = new (int X, int Y, Color Expected)[]
+        {
+            (12, 12, Colors.LimeGreen), (118, 69, Colors.Tomato)
+        };
+
+        (Color Left, Color Right) reference = default;
         await WaitUntil(() =>
         {
             Native.DwmFlush();
-            screenPixel = Pixel(DesktopSnapshot.Capture().Crop(area), 12, 12);
-            return screenPixel == Colors.LimeGreen;
-        }, () =>
-        {
-            nint hit = WindowFromPoint(new NativePoint { X = area.X + 12, Y = area.Y + 12 });
-            nint dc = GetDC(0);
-            uint desktopPixel = GetPixel(dc, area.X + 12, area.Y + 12);
-            ReleaseDC(0, dc);
-            return $"GDI marker mismatch: {screenPixel}; GetPixel BGR: {desktopPixel:X8}; " +
-                   $"foreground is marker: {GetForegroundWindow() == markerHandle}; window at pixel is marker: {hit == markerHandle}";
-        });
+            reference = (DesktopPixel(area.X + samples[0].X, area.Y + samples[0].Y),
+                DesktopPixel(area.X + samples[1].X, area.Y + samples[1].Y));
+            return reference == (samples[0].Expected, samples[1].Expected);
+        }, () => $"The Windows desktop did not present the test markers (GetPixel: {reference})");
+        Console.WriteLine($"PASS independent Windows GetPixel reference: {reference}");
 
-        MoveCursor(start);
+        var snapshot = DesktopSnapshot.Capture().Crop(area);
+        foreach (var sample in samples)
+        {
+            Color actual = Pixel(snapshot, sample.X, sample.Y);
+            Require(actual == sample.Expected,
+                $"BitBlt snapshot pixel ({sample.X},{sample.Y}) is {actual}, expected {sample.Expected}");
+        }
+        Console.WriteLine("PASS BitBlt copied both colors from the Windows desktop");
+
+        MoveCursor(new Point(area.X, area.Y));
         SendKeys(0x11, 0x12, 0x10, 0x77);
-        await WaitUntil(() => app.Windows.Cast<Window>().Count(window => window.IsVisible) > 2,
+        await WaitUntil(() => app.Windows.Cast<Window>().Any(window => window.IsVisible && window != home),
             "Region overlay opened via global hotkey");
-        marker.Topmost = false;
         await Task.Delay(150);
         SendMouse(0x0002);
         try
         {
-            await WaitUntil(() => Mouse.Captured is Window overlay && overlay != home && overlay != marker,
+            await WaitUntil(() => Mouse.Captured is Window overlay && overlay != home,
                 "Selection overlay received the initial mouse press");
-            MoveCursor(end);
+            MoveCursor(new Point(area.X + area.Width, area.Y + area.Height));
         }
         finally
         {
@@ -158,10 +172,13 @@ internal static class Program
         var capture = LocalStore.OpenPng(store.Recent().Single());
         Require(capture.PixelWidth == area.Width && capture.PixelHeight == area.Height,
             $"Selected PNG measured {capture.PixelWidth}×{capture.PixelHeight}, expected {area.Width}×{area.Height}");
-        Color capturedPixel = Pixel(capture, 12, 12);
-        Require(capturedPixel == Colors.LimeGreen, $"Selected PNG pixel is {capturedPixel}, expected {Colors.LimeGreen}");
-        Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height})");
-
+        foreach (var sample in samples)
+        {
+            Color actual = Pixel(capture, sample.X, sample.Y);
+            Require(actual == sample.Expected,
+                $"Selected PNG pixel ({sample.X},{sample.Y}) is {actual}, expected {sample.Expected}");
+        }
+        Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height}, both colors)");
         app.Windows.OfType<EditorWindow>().Single().Close();
         await CheckShelfDragAsync(home, marker, store.Recent().Single());
     }
@@ -233,6 +250,24 @@ internal static class Program
         return null;
     }
 
+    private static Color DesktopPixel(int x, int y)
+    {
+        nint dc = GetDC(0);
+        if (dc == 0)
+            throw new InvalidOperationException("Could not get a desktop DC for the reference pixel.");
+        try
+        {
+            uint color = GetPixel(dc, x, y);
+            if (color == 0xFFFFFFFF)
+                throw new InvalidOperationException($"Could not read the desktop reference pixel at {x},{y}.");
+            return Color.FromRgb((byte)color, (byte)(color >> 8), (byte)(color >> 16));
+        }
+        finally
+        {
+            ReleaseDC(0, dc);
+        }
+    }
+
     private static Color Pixel(BitmapSource bitmap, int x, int y)
     {
         var pixel = new byte[4];
@@ -296,21 +331,6 @@ internal static class Program
 
     [DllImport("gdi32.dll")]
     private static extern uint GetPixel(nint dc, int x, int y);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(nint window);
-
-    [DllImport("user32.dll")]
-    private static extern nint GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern nint WindowFromPoint(NativePoint point);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X, Y;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Input
