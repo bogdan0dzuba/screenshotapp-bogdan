@@ -110,7 +110,7 @@ internal static class Program
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize,
             Topmost = true, ShowInTaskbar = false, Left = 40, Top = 40, Width = 320, Height = 250,
-            Background = Brushes.LimeGreen
+            Content = new Border { Background = Brushes.LimeGreen }
         };
         marker.Show();
         marker.Activate();
@@ -129,8 +129,11 @@ internal static class Program
         }, () =>
         {
             nint hit = WindowFromPoint(new NativePoint { X = area.X + 12, Y = area.Y + 12 });
-            return $"GDI marker mismatch: {screenPixel}; foreground is marker: {GetForegroundWindow() == markerHandle}; " +
-                   $"window at pixel is marker: {hit == markerHandle}";
+            nint dc = GetDC(0);
+            uint desktopPixel = GetPixel(dc, area.X + 12, area.Y + 12);
+            ReleaseDC(0, dc);
+            return $"GDI marker mismatch: {screenPixel}; GetPixel BGR: {desktopPixel:X8}; " +
+                   $"foreground is marker: {GetForegroundWindow() == markerHandle}; window at pixel is marker: {hit == markerHandle}";
         });
 
         MoveCursor(start);
@@ -276,6 +279,15 @@ internal static class Program
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetDC(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(nint window, nint dc);
+
+    [DllImport("gdi32.dll")]
+    private static extern uint GetPixel(nint dc, int x, int y);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint window);
