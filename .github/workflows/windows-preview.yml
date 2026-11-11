@@ -50,10 +50,11 @@ jobs:
           $zip = Join-Path $output "$name.zip"
           Compress-Archive -LiteralPath $appDir -DestinationPath $zip
           $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha  $name.zip" | Set-Content -Encoding ascii "$zip.sha256"
+          [IO.File]::WriteAllText("$zip.sha256", "$sha  $name.zip" + [char]10, [Text.Encoding]::ASCII)
+          $displayVersion = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').DisplayVersion
           @(
             "Commit: $env:GITHUB_SHA",
-            "Runner: $((Get-CimInstance Win32_OperatingSystem).Caption) $([Environment]::OSVersion.Version)",
+            "Runner: $((Get-CimInstance Win32_OperatingSystem).Caption) $displayVersion ($([Environment]::OSVersion.Version))",
             "Architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)",
             ".NET SDK: $(dotnet --version)",
             "SHA-256: $sha"
@@ -82,14 +83,40 @@ jobs:
             Write-Output "PASS packaged EXE opened: $($process.MainWindowTitle)"
             $null = $process.CloseMainWindow()
             if (!$process.WaitForExit(5000) -or $process.ExitCode -ne 0) { throw 'Application did not exit cleanly' }
+            "PASS $env:RID PE architecture, window opened, and clean exit" | Add-Content "$env:RUNNER_TEMP/delivery/build.txt"
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id }
           }
 
       - name: Verify capture, rendering, and transfer on Windows
         run: |
-          dotnet run --project windows/SmokeChecks -c Release -r $env:RID 2>&1 | Tee-Object "$env:RUNNER_TEMP/delivery/smoke.txt"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $watch = $null
+          try {
+            if ($env:RID -eq 'win-arm64') {
+              # First sign-in windows and the recurring WSL update steal GUI input.
+              # https://github.com/actions/runner-images/issues/14069
+              # https://github.com/actions/runner-images/issues/14264
+              Get-Process -Name UserOOBEBroker,WWAHost,SystemPropertiesPerformance -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                  Write-Output "Dismissing runner window: $($_.ProcessName) $($_.MainWindowTitle)"
+                  Stop-Process -Id $_.Id -ErrorAction SilentlyContinue
+                }
+              Start-Sleep -Milliseconds 500
+              (New-Object -ComObject WScript.Shell).SendKeys('{ESC}')
+              $watch = Start-ThreadJob {
+                while ($true) {
+                  Get-Process -Name WindowsTerminal -ErrorAction SilentlyContinue |
+                    Where-Object { $_.MainWindowTitle -like '*wsl.exe*' } |
+                    ForEach-Object { $null = $_.CloseMainWindow() }
+                  Start-Sleep -Milliseconds 250
+                }
+              }
+            }
+            dotnet run --project windows/SmokeChecks -c Release -r $env:RID 2>&1 | Tee-Object "$env:RUNNER_TEMP/delivery/smoke.txt"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            if ($watch) { Remove-Job -Job $watch -Force }
+          }
 
       - name: Upload ZIP and build evidence
         if: ${{ !cancelled() && env.ZIP_PATH != '' }}

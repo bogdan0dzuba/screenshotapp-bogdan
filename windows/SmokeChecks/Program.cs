@@ -1,6 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -33,6 +34,10 @@ internal static class Program
             }
             finally
             {
+                foreach (Window window in app.Windows.Cast<Window>().ToArray().Reverse())
+                    window.Close();
+                if (Directory.Exists(root))
+                    Directory.Delete(root, true);
                 dispatcher.InvokeShutdown();
             }
         });
@@ -145,6 +150,76 @@ internal static class Program
         Require(capture.PixelWidth == area.Width && capture.PixelHeight == area.Height &&
                 Pixel(capture, 12, 12) == Colors.LimeGreen, "Selected PNG contains the original screen pixels");
         Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height})");
+
+        app.Windows.OfType<EditorWindow>().Single().Close();
+        await CheckShelfDragAsync(home, marker, store.Recent().Single());
+    }
+
+    private static async Task CheckShelfDragAsync(MainWindow home, Window target, string path)
+    {
+        Rect work = SystemParameters.WorkArea;
+        home.Left = work.Left + 8;
+        home.Top = work.Top + 12;
+        home.Width = Math.Max(home.MinWidth, work.Width * 0.65);
+        home.Height = Math.Max(home.MinHeight, work.Height * 0.65);
+        target.Topmost = true;
+        target.Left = work.Right - 190;
+        target.Top = work.Top + 35;
+        target.Width = 175;
+        target.Height = 175;
+        target.AllowDrop = true;
+        string? dropped = null;
+        target.Drop += (_, e) =>
+        {
+            dropped = (e.Data.GetData(DataFormats.FileDrop) as string[])?.SingleOrDefault();
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        };
+        home.Activate();
+        await WaitUntil(() => home.Shelf.Items.Count == 1, "Shelf shows captured PNG");
+        object item = home.Shelf.Items[0];
+        home.Shelf.ScrollIntoView(item);
+        home.UpdateLayout();
+        var container = (DependencyObject?)home.Shelf.ItemContainerGenerator.ContainerFromItem(item);
+        var thumbnail = container is null ? null : FindImage(container);
+        if (thumbnail is null)
+            throw new InvalidOperationException("Shelf thumbnail is unavailable for dragging");
+
+        Point start = thumbnail.PointToScreen(new Point(thumbnail.ActualWidth / 2, thumbnail.ActualHeight / 2));
+        Point destination = target.PointToScreen(new Point(80, 80));
+        await Task.Run(async () =>
+        {
+            MoveCursor(start);
+            await Task.Delay(100);
+            SendMouse(0x0002);
+            try
+            {
+                await Task.Delay(100);
+                MoveCursor(start + new Vector(16, 0));
+                await Task.Delay(200);
+                MoveCursor(destination);
+                await Task.Delay(250);
+            }
+            finally
+            {
+                SendMouse(0x0004);
+            }
+        });
+        await WaitUntil(() => dropped == path, "Shelf drag delivered the PNG file to a WPF drop target");
+        Console.WriteLine("PASS dragging a shelf thumbnail delivered the PNG file to another window");
+    }
+
+    private static Image? FindImage(DependencyObject parent)
+    {
+        if (parent is Image image)
+            return image;
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var found = FindImage(VisualTreeHelper.GetChild(parent, index));
+            if (found is not null)
+                return found;
+        }
+        return null;
     }
 
     private static Color Pixel(BitmapSource bitmap, int x, int y)
