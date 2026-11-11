@@ -15,8 +15,13 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
     private var activeCaptureRect: CGRect?
     private var selectionID: UUID?
     private var previousCursor: NSCursor?
+    private let captureFeedback: CaptureFeedbackPanel
     static let escapeSignature: UInt32 = 0x53484553 // SHES, separate from the capture hotkey
     private let escapeHotKey = GlobalHotKeyService(signature: escapeSignature, allowsUnmodifiedEscape: true)
+
+    init(captureFeedback: CaptureFeedbackPanel? = nil) {
+        self.captureFeedback = captureFeedback ?? CaptureFeedbackPanel()
+    }
 
     var selectionEscapeIdentifier: UInt32? { escapeHotKey.activeEventIdentifier }
 
@@ -39,7 +44,10 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
         let screen = try screenUnderPointer()
         let preparationStarted = ContinuousClock.now
         CaptureTelemetry.logger.notice("selection_backdrop_preparation_started")
-        let backdropImage = try await captureService.captureFrozenScreen(rect: captureRect(for: screen))
+        let rect = captureRect(for: screen)
+        let backdropImage = try await captureFeedback.captureFrame {
+            try await captureService.captureFrozenScreen(rect: rect)
+        }
         let duration = preparationStarted.duration(to: .now)
         let milliseconds = Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
         CaptureTelemetry.logger.notice("selection_backdrop_preparation_finished milliseconds=\(milliseconds, privacy: .public)")
@@ -66,11 +74,7 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
         return RegionSelection(rect: rect, image: image)
     }
 
-    func selectLiveRegion(captureRect: CGRect) async throws -> CGRect {
-        try await selectRect(captureRect: captureRect, backdropImage: nil)
-    }
-
-    private func selectRect(captureRect: CGRect, backdropImage: CGImage?) async throws -> CGRect {
+    private func selectRect(captureRect: CGRect, backdropImage: CGImage) async throws -> CGRect {
         guard continuation == nil, selectionID == nil, !Task.isCancelled,
               let mainTop = NSScreen.screens.first?.frame.maxY else { throw CaptureError.cancelled }
         let frame = ScreenCoordinateTransform.appKitRect(fromCaptureRect: captureRect, mainScreenTop: mainTop)
@@ -97,7 +101,7 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
         return true
     }
 
-    private func presentOverlay(frame: CGRect, captureRect: CGRect, backdropImage: CGImage?) {
+    private func presentOverlay(frame: CGRect, captureRect: CGRect, backdropImage: CGImage) {
         guard let id = selectionID else {
             finish(.failure(CaptureError.cancelled))
             return
@@ -164,7 +168,7 @@ final class RegionSelectionController: NSObject, NSWindowDelegate {
         }
         panel.ignoresMouseEvents = false
         focusPendingOverlayIfNeeded()
-        CaptureTelemetry.logger.notice("selection_overlay_presented live=\(backdropImage == nil) rendered=\(overlay.hasDrawnFirstFrame) active_space=\(panel.isOnActiveSpace) occluded=\(!panel.occlusionState.contains(.visible)) width=\(Int(frame.width), privacy: .public) height=\(Int(frame.height), privacy: .public)")
+        CaptureTelemetry.logger.notice("selection_overlay_presented rendered=\(overlay.hasDrawnFirstFrame) active_space=\(panel.isOnActiveSpace) occluded=\(!panel.occlusionState.contains(.visible)) width=\(Int(frame.width), privacy: .public) height=\(Int(frame.height), privacy: .public)")
         let yieldedAt = ContinuousClock.now
         DispatchQueue.main.async { [weak self] in
             guard self?.selectionID == id else { return }
@@ -241,13 +245,13 @@ final class SelectionOverlayView: NSView {
     var onCancel: (() -> Void)?
     private var startPoint: CGPoint?
     private var currentPoint: CGPoint?
-    private let backdropImage: NSImage?
+    private let backdropImage: NSImage
     private var pendingDamage: [CGRect] = []
     private(set) var hasDrawnFirstFrame = false
     private(set) var lastPaintedArea: CGFloat = 0
 
-    init(frame frameRect: NSRect, backdropImage: CGImage?) {
-        self.backdropImage = backdropImage.map { NSImage(cgImage: $0, size: frameRect.size) }
+    init(frame frameRect: NSRect, backdropImage: CGImage) {
+        self.backdropImage = NSImage(cgImage: backdropImage, size: frameRect.size)
         super.init(frame: frameRect)
         wantsLayer = true
     }
@@ -324,13 +328,8 @@ final class SelectionOverlayView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext, !damage.isEmpty else { return }
         context.clip(to: damage)
         context.clear(dirtyRect)
-        if let backdropImage {
-            backdropImage.draw(in: bounds, from: .zero, operation: .copy, fraction: 1,
-                               respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
-        } else {
-            NSColor.white.withAlphaComponent(1.0 / 255).setFill()
-            NSBezierPath(rect: dirtyRect).fill()
-        }
+        backdropImage.draw(in: bounds, from: .zero, operation: .copy, fraction: 1,
+                           respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
         guard !selectionRect.isEmpty else {
             hintText.draw(at: hintBounds.origin)
             return

@@ -49,6 +49,7 @@ struct ShelfHotKeyChecks {
 
         stage("model initialization")
         let model = AppModel(preferences: prefs)
+        try checkCaptureHotKeyFallback(model: model, defaults: defaults)
         let saved = model.preferences.shelfHotKey
         defer { model.preferences.shelfHotKey = saved }
         stage("panel initialization")
@@ -138,6 +139,28 @@ struct ShelfHotKeyChecks {
         model.shelfHotKeyService.unregister()
         blocker.unregister()
         print("ShelfHotKeyChecks: OK (Carbon toggle, conflict rollback, pointer bounds, hidden recovery, inactive glass and preference preservation)")
+    }
+
+    @MainActor
+    static func checkCaptureHotKeyFallback(model: AppModel, defaults: UserDefaults) throws {
+        let preferred = HotKey(key: "Z", keyCode: 6, modifiers: [.control, .option, .shift, .command])
+        let blocker = GlobalHotKeyService(signature: 0x434F4E46)
+        try blocker.register(preferred) {}
+        model.preferences.setHotKey(preferred)
+        model.registerHotKey()
+        precondition(model.activeHotKey == .defaultCapture, "a conflict must still activate the standard shortcut")
+        precondition(AppPreferences(defaults: defaults).hotKey == preferred, "the fallback must not overwrite the saved shortcut")
+        precondition(!model.registerHotKey(preferred), "a manual attempt while the shortcut is still occupied must fail")
+        precondition(AppPreferences(defaults: defaults).hotKey == preferred, "a failed manual attempt must not persist the active fallback")
+        blocker.unregister()
+        model.registerHotKey()
+        precondition(model.activeHotKey == preferred, "startup registration must retry the saved shortcut when available")
+
+        let replacement = HotKey(key: "X", keyCode: 7, modifiers: preferred.modifiers)
+        precondition(model.registerHotKey(replacement), "an available manual replacement must succeed")
+        precondition(AppPreferences(defaults: defaults).hotKey == replacement, "a successful manual change must persist")
+        model.captureFeedback.hide()
+        print("CaptureHotKeyFallback: OK (saved shortcut preserved, retried and manually replaced)")
     }
 
     static func stage(_ value: String) {
