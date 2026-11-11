@@ -10,12 +10,13 @@ struct SelectionFocusChecks {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         NSApp.finishLaunching()
+        try await checkCaptureFeedback()
         let controller = RegionSelectionController()
         do {
             _ = try await controller.selectRegion(using: CaptureService(screenCaptureAccess: { false }))
-            throw NSError(domain: "live selector must respect screen-capture permission", code: 1)
+            throw NSError(domain: "region selector must respect screen-capture permission", code: 1)
         } catch ScreenCapturePermissionError.denied { }
-        try require(!controller.hasPendingSelection, "denied access must not open the live selector")
+        try require(!controller.hasPendingSelection, "denied access must not open the region selector")
         let context = CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
         context.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
@@ -36,7 +37,7 @@ struct SelectionFocusChecks {
         panel.orderOut(nil)
         controller.focusPendingOverlayIfNeeded()
         try require(panel.isVisible && panel.isKeyWindow, "recovery must reveal and focus existing selection")
-        try require(controller.hasPendingSelection, "refocusing must preserve live selection")
+        try require(controller.hasPendingSelection, "refocusing must preserve the pending selection")
         let view = panel.contentView!
         // Change the live scene after focus has moved, as a dropdown would close.
         // Both the visible backdrop and returned crop must retain the old pixels.
@@ -96,35 +97,29 @@ struct SelectionFocusChecks {
         controller.cancelActiveSelection()
         do { _ = try await second.value; throw NSError(domain: "second cancel did not finish", code: 1) }
         catch CaptureError.cancelled { }
-        try require(!controller.hasPendingSelection, "cancellation must clear live selection")
-        let live = Task { @MainActor in
-            try await controller.selectLiveRegion(captureRect: CGRect(x: 120, y: 120, width: 160, height: 160))
+        try require(!controller.hasPendingSelection, "cancellation must clear the pending selection")
+        let offsetRect = CGRect(x: 120, y: 120, width: 160, height: 160)
+        let offsetSelection = Task { @MainActor in
+            try await controller.selectRegion(captureRect: offsetRect, backdropImage: image)
         }
         try await waitForSelection(controller)
-        let livePanel = NSApp.windows.first { $0.title == "Выбор области снимка" && $0.isVisible }!
-        let liveView = livePanel.contentView as! SelectionOverlayView
-        try require(controller.hasRenderedPendingSelection, "live selector must paint without waiting for a screenshot")
-        try require(livePanel.backgroundColor == NSColor.clear && !livePanel.isOpaque,
-                    "live selector must have a transparent background")
-        let blankPoint = CGPoint(x: livePanel.frame.minX + 4, y: livePanel.frame.minY + 4)
-        try await waitForMouseRouting(livePanel, at: blankPoint)
+        let offsetPanel = NSApp.windows.first { $0.title == "Выбор области снимка" && $0.isVisible }!
+        let offsetView = offsetPanel.contentView as! SelectionOverlayView
+        let blankPoint = CGPoint(x: offsetPanel.frame.minX + 4, y: offsetPanel.frame.minY + 4)
+        try await waitForMouseRouting(offsetPanel, at: blankPoint)
         func renderedBitmap() -> NSBitmapImageRep {
-            let bitmap = liveView.bitmapImageRepForCachingDisplay(in: liveView.bounds)!
-            liveView.cacheDisplay(in: liveView.bounds, to: bitmap)
+            let bitmap = offsetView.bitmapImageRepForCachingDisplay(in: offsetView.bounds)!
+            offsetView.cacheDisplay(in: offsetView.bounds, to: bitmap)
             return bitmap
         }
-        let bitmap = renderedBitmap()
-        let blank = bitmap.colorAt(x: 4, y: 4)!.usingColorSpace(.deviceRGB)!
-        try require(blank.alphaComponent > 0 && blank.alphaComponent <= 1.0 / 255 + 0.0001 && blank.redComponent > 0.99,
-                    "unselected pixels need only one white alpha step: \(blank); background=\(String(describing: liveView.layer!.backgroundColor)) bounds=\(liveView.layer!.bounds) frame=\(liveView.layer!.frame) flipped=\(liveView.layer!.isGeometryFlipped) children=\(liveView.layer!.sublayers?.count ?? 0)")
-        func liveMouse(_ type: NSEvent.EventType, _ x: CGFloat, _ y: CGFloat) -> NSEvent {
+        func offsetMouse(_ type: NSEvent.EventType, _ x: CGFloat, _ y: CGFloat) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: CGPoint(x: x, y: y), modifierFlags: [],
-                               timestamp: 0, windowNumber: livePanel.windowNumber, context: nil,
+                               timestamp: 0, windowNumber: offsetPanel.windowNumber, context: nil,
                                eventNumber: 0, clickCount: 1, pressure: 1)!
         }
-        livePanel.sendEvent(liveMouse(.leftMouseDown, 2, 2))
-        livePanel.sendEvent(liveMouse(.leftMouseDragged, 20, 20))
-        livePanel.displayIfNeeded()
+        offsetPanel.sendEvent(offsetMouse(.leftMouseDown, 2, 2))
+        offsetPanel.sendEvent(offsetMouse(.leftMouseDragged, 20, 20))
+        offsetPanel.displayIfNeeded()
         CATransaction.flush()
         let selectedBitmap = renderedBitmap()
         let selectedPixel = selectedBitmap.colorAt(x: Int(2 * CGFloat(selectedBitmap.pixelsWide) / 160),
@@ -132,28 +127,28 @@ struct SelectionFocusChecks {
         try require(selectedPixel.blueComponent > selectedPixel.redComponent && selectedPixel.alphaComponent > 0.5,
                     "blue outline must occupy the rectangle indicated by the flipped view")
         for location in [40.0, 80.0, 120.0, 50.0, 20.0] {
-            livePanel.sendEvent(liveMouse(.leftMouseDragged, location, location))
-            livePanel.displayIfNeeded()
+            offsetPanel.sendEvent(offsetMouse(.leftMouseDragged, location, location))
+            offsetPanel.displayIfNeeded()
             CATransaction.flush()
-            try require(liveView.lastPaintedArea < 160 * 160,
+            try require(offsetView.lastPaintedArea < 160 * 160,
                         "dragging must repaint edge strips and labels rather than the whole selected area")
         }
-        livePanel.sendEvent(liveMouse(.leftMouseUp, 20, 20))
-        let liveRect = try await live.value
-        try require(liveRect == CGRect(x: 122, y: 260, width: 18, height: 18),
-                    "live selection must translate flipped local coordinates into capture coordinates")
+        offsetPanel.sendEvent(offsetMouse(.leftMouseUp, 20, 20))
+        let offsetResult = try await offsetSelection.value
+        try require(offsetResult.rect == CGRect(x: 122, y: 260, width: 18, height: 18),
+                    "selection must translate flipped local coordinates into capture coordinates")
         for (index, screen) in NSScreen.screens.enumerated() {
             let captureRect = ScreenCoordinateTransform.captureRect(fromAppKitRect: screen.frame,
                                                                    mainScreenTop: NSScreen.screens.first!.frame.maxY)
             let started = ContinuousClock.now
             let fullSize = Task { @MainActor in
-                try await controller.selectLiveRegion(captureRect: captureRect)
+                try await controller.selectRegion(captureRect: captureRect, backdropImage: image)
             }
             try await waitForSelection(controller)
             let fullPanel = NSApp.windows.first { $0.title == "Выбор области снимка" && $0.isVisible }!
             try await waitForMouseRouting(fullPanel, at: CGPoint(x: screen.frame.minX + 4, y: screen.frame.minY + 4))
             try require(fullPanel.frame == screen.frame && controller.hasRenderedPendingSelection,
-                        "live selection must cover the selected display with its original global coordinates")
+                        "selection must cover the selected display with its original global coordinates")
             let elapsed = started.duration(to: .now)
             let milliseconds = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
             let fullView = fullPanel.contentView as! SelectionOverlayView
@@ -183,7 +178,7 @@ struct SelectionFocusChecks {
             try await Task.sleep(for: .milliseconds(10))
         }
         let escaped = Task { @MainActor in
-            try await controller.selectLiveRegion(captureRect: CGRect(x: 120, y: 120, width: 160, height: 160))
+            try await controller.selectRegion(captureRect: offsetRect, backdropImage: image)
         }
         try await waitForSelection(controller)
         let escapePanel = NSApp.windows.first { $0.title == "Выбор области снимка" && $0.isVisible }!
@@ -211,11 +206,50 @@ struct SelectionFocusChecks {
         catch CaptureError.cancelled { }
         try require(!controller.hasPendingSelection, "Escape must clear the selection without a mouse press")
         try require(controller.selectionEscapeIdentifier == nil, "global Escape must be released as soon as selection closes")
-        print("SelectionFocusChecks: OK (first focus, inactive drag and Escape, frozen crop, cancellation, transparent live selection, edge-only dragging)")
+        print("SelectionFocusChecks: OK (first focus, inactive drag and Escape, frozen crop, cancellation, display geometry, edge-only dragging)")
     }
 
     static func require(_ condition: Bool, _ message: String) throws {
         if !condition { throw NSError(domain: message, code: 1) }
+    }
+
+    @MainActor
+    static func checkCaptureFeedback() async throws {
+        let feedback = CaptureFeedbackPanel()
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let keyWindow = NSApp.keyWindow
+        func visiblePanel() -> NSWindow? {
+            NSApp.windows.first { $0.title == "Статус Скриншутера" && $0.isVisible }
+        }
+
+        var attempts = 0
+        let frame = try await feedback.captureFrame {
+            attempts += 1
+            if attempts == 1 {
+                feedback.show("Перезапускаю выбор области…")
+                guard let panel = visiblePanel() else {
+                    throw NSError(domain: "recovery feedback was not displayed", code: 1)
+                }
+                try require(!panel.canBecomeKey && !panel.canBecomeMain && panel.ignoresMouseEvents,
+                            "feedback must leave keyboard and mouse input with the active window")
+                await Task.yield()
+                try require(NSApp.keyWindow === keyWindow && NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmost,
+                            "presenting recovery feedback changed focus")
+            } else {
+                feedback.show("Еще одно сообщение")
+                try require(visiblePanel() == nil, "feedback must stay hidden while replacing a potentially contaminated frame")
+            }
+            return attempts
+        }
+        try require(frame == 2 && attempts == 2, "a frame that may include feedback must be discarded once")
+        feedback.show("Скриншот не готов", duration: .milliseconds(50))
+        try require(visiblePanel() != nil, "capture failure must be visible")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while visiblePanel() != nil {
+            try require(ContinuousClock.now < deadline, "feedback did not dismiss itself")
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        print("CaptureFeedback: OK (visible status, unchanged focus, clean frame retry, automatic dismissal)")
     }
 
     @MainActor

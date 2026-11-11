@@ -13,6 +13,7 @@ else
 fi
 swiftc -swift-version 5 -parse-as-library "${CORE_LINK_ARGS[@]}" \
   Sources/ScreenshotApp/Windowing/RegionSelectionController.swift \
+  Sources/ScreenshotApp/Windowing/CaptureFeedbackPanel.swift \
   Sources/ScreenshotApp/Services/CaptureService.swift \
   Sources/ScreenshotApp/Services/SelectedContentFrameCapture.swift \
   Sources/ScreenshotApp/Services/CaptureTelemetry.swift \

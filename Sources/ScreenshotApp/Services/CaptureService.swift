@@ -47,17 +47,6 @@ struct CaptureService: Sendable {
         try await SelectedContentFrameCapture.image(filter: $0, configuration: $1)
     }
 
-    @MainActor
-    func captureSelectedRegion(rect: CGRect) async throws -> CGImage {
-        try Task.checkCancellation()
-        let prepared = try await prepareScrollCapture(rect: rect.integral)
-        try Task.checkCancellation()
-        let image = try await capture(prepared)
-        try Task.checkCancellation()
-        CaptureTelemetry.logger.notice("live_region_captured width=\(image.width, privacy: .public) height=\(image.height, privacy: .public)")
-        return image
-    }
-
     func captureFrozenScreen(rect: CGRect) async throws -> CGImage {
         try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         let integral = rect.integral
@@ -78,7 +67,8 @@ struct CaptureService: Sendable {
             } catch is CancellationError {
                 throw CaptureError.cancelled
             } catch {
-                CaptureTelemetry.logger.notice("frozen_screen_native_fallback")
+                let failure = error as NSError
+                CaptureTelemetry.logger.notice("frozen_screen_native_fallback domain=\(failure.domain, privacy: .public) code=\(failure.code)")
                 return try await captureFrozenScreenFallback(rect: integral)
             }
         }
@@ -114,32 +104,6 @@ struct CaptureService: Sendable {
         }
         arguments.append(outputURL.path)
         try await runScreencapture(arguments: arguments, outputURL: outputURL)
-    }
-
-    func capture(rect: CGRect, to outputURL: URL) async throws {
-        try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
-        let integral = rect.integral
-        if #available(macOS 15.2, *) {
-            do {
-                try? FileManager.default.removeItem(at: outputURL)
-                let image = try await AsyncDeadline.value(timeout: 8) { completion in
-                    SCScreenshotManager.captureImage(in: integral) { image, error in
-                        if let image { completion(.success(image)) }
-                        else { completion(.failure(error ?? CaptureError.missingOutput)) }
-                    }
-                }
-                try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
-                try Self.writePNG(image, to: outputURL)
-                CaptureTelemetry.logger.info("native_region_capture_finished")
-                return
-            } catch is CancellationError {
-                throw CaptureError.cancelled
-            } catch {
-                CaptureTelemetry.logger.notice("native_region_capture_fallback")
-            }
-        }
-        let region = "\(Int(integral.minX)),\(Int(integral.minY)),\(Int(integral.width)),\(Int(integral.height))"
-        try await runScreencapture(arguments: ["-x", "-R", region, outputURL.path], outputURL: outputURL)
     }
 
     @MainActor
@@ -220,11 +184,6 @@ struct CaptureService: Sendable {
         return image
     }
 
-    func capture(_ prepared: PreparedScrollCapture, to outputURL: URL) async throws {
-        let image = try await capture(prepared)
-        try Self.writePNG(image, to: outputURL)
-    }
-
     private static func writePNG(_ image: CGImage, to outputURL: URL) throws {
         guard let destination = CGImageDestinationCreateWithURL(
             outputURL as CFURL,
@@ -243,18 +202,21 @@ struct CaptureService: Sendable {
     private func runScreencapture(arguments: [String], outputURL: URL) async throws {
         try ScreenCapturePermission.requireAccess(preflight: screenCaptureAccess)
         try? FileManager.default.removeItem(at: outputURL)
+        let isInteractive = arguments.contains("-i")
         let status = try await CaptureProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/usr/sbin/screencapture"),
             arguments: arguments,
             outputURL: outputURL,
             // Interactive capture waits for the person; only preparation has a deadline.
-            timeout: arguments.contains("-i") ? nil : 8
+            timeout: isInteractive ? nil : 8
         )
-        CaptureTelemetry.logger.info("capture_process_finished status=\(status)")
-        switch CaptureProcessOutcome.resolve(terminationStatus: status,
-                                            outputExists: FileManager.default.fileExists(atPath: outputURL.path)) {
+        let outputExists = FileManager.default.fileExists(atPath: outputURL.path)
+        CaptureTelemetry.logger.notice("capture_process_finished status=\(status) output_exists=\(outputExists) interactive=\(isInteractive)")
+        switch CaptureProcessOutcome.resolve(terminationStatus: status, outputExists: outputExists,
+                                            isInteractive: isInteractive) {
         case .success: break
         case .cancelled: throw CaptureError.cancelled
+        case .missingOutput: throw CaptureError.missingOutput
         case let .failed(code): throw CaptureError.failed(code)
         }
         do {

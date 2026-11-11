@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.shelfController = shelf
         model.editorController = EditorWindowController()
         model.pinnedController = PinnedImageController()
-        model.regionSelectionController = RegionSelectionController()
+        model.regionSelectionController = RegionSelectionController(captureFeedback: model.captureFeedback)
         model.scrollCaptureController = ScrollCaptureController()
         model.start()
         installStatusMenu()

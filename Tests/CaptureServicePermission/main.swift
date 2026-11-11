@@ -16,11 +16,9 @@ struct CaptureServicePermissionChecks {
         try sentinel.write(to: output)
         let rect = CGRect(x: 0, y: 0, width: 16, height: 16)
         try await denied("frozen selection") { _ = try await service.captureFrozenScreen(rect: rect) }
-        try await denied("live selected region") { _ = try await service.captureSelectedRegion(rect: rect) }
         for mode in [CaptureMode.area, .window, .fullScreen] {
             try await denied("system capture") { try await service.capture(mode, to: output) }
         }
-        try await denied("native region") { try await service.capture(rect: rect, to: output) }
         try await denied("scroll preparation") { _ = try await service.prepareScrollCapture(rect: rect) }
         guard try Data(contentsOf: output) == sentinel else {
             throw NSError(domain: "Denied capture modified output", code: 1)
@@ -37,8 +35,9 @@ struct CaptureServicePermissionChecks {
         let selectedService = CaptureService(screenCaptureAccess: { false }, filteredCapture: { _, _ in frame }, selectedCapture: { _, _ in frame })
         var unrestricted = selected
         unrestricted.requiresGlobalAccess = true
-        try await denied("unrestricted prepared frame") { try await selectedService.capture(unrestricted, to: output) }
-        try await selectedService.capture(selected, to: output)
+        try await denied("unrestricted prepared frame") { _ = try await selectedService.capture(unrestricted) }
+        let authorizedFrame = try await selectedService.capture(selected)
+        try selectedService.write(authorizedFrame, to: output)
         guard let decoded = CGImageSourceCreateWithURL(output as CFURL, nil),
               CGImageSourceGetCount(decoded) == 1,
               let image = CGImageSourceCreateImageAtIndex(decoded, 0, nil), image.width == 8, image.height == 6 else {
@@ -49,7 +48,8 @@ struct CaptureServicePermissionChecks {
             throw NSError(domain: SCStreamErrorDomain, code: SCStreamError.userDeclined.rawValue)
         })
         do {
-            try await revokedService.capture(selected, to: output)
+            let revokedFrame = try await revokedService.capture(selected)
+            try revokedService.write(revokedFrame, to: output)
             throw NSError(domain: "Revoked picker access must fail", code: 1)
         } catch let error as NSError where error.domain == SCStreamErrorDomain { }
         guard try Data(contentsOf: output) == sentinel else {

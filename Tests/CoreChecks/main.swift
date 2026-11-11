@@ -1140,18 +1140,25 @@ private func checkAreaCaptureRecoveryPolicy() throws {
 }
 
 private func checkCaptureProcessOutcome() throws {
-    try expect(
-        CaptureProcessOutcome.resolve(terminationStatus: 0, outputExists: false) == .cancelled,
-        "Escape cancellation is silent when screencapture exits successfully without an image"
-    )
-    try expect(
-        CaptureProcessOutcome.resolve(terminationStatus: 0, outputExists: true) == .success,
-        "a successful screencapture with an image is accepted"
-    )
-    try expect(
-        CaptureProcessOutcome.resolve(terminationStatus: 2, outputExists: false) == .failed(2),
-        "a real screencapture failure remains visible"
-    )
+    for status: Int32 in [0, 1] {
+        try expect(CaptureProcessOutcome.resolve(terminationStatus: status, outputExists: false,
+                                                isInteractive: true) == .cancelled,
+                   "interactive screencapture without an image may have been cancelled")
+    }
+    for isInteractive in [false, true] {
+        try expect(CaptureProcessOutcome.resolve(terminationStatus: 0, outputExists: true,
+                                                isInteractive: isInteractive) == .success,
+                   "a successful screencapture with an image is accepted")
+        try expect(CaptureProcessOutcome.resolve(terminationStatus: 2, outputExists: false,
+                                                isInteractive: isInteractive) == .failed(2),
+                   "a screencapture failure remains visible")
+    }
+    try expect(CaptureProcessOutcome.resolve(terminationStatus: 0, outputExists: false,
+                                            isInteractive: false) == .missingOutput,
+               "an automatic capture without an image must report missing output")
+    try expect(CaptureProcessOutcome.resolve(terminationStatus: 1, outputExists: false,
+                                            isInteractive: false) == .failed(1),
+               "an automatic capture failure must not be mistaken for Escape")
 }
 
 private func checkImageFileMetadata() throws {

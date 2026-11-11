@@ -18,6 +18,11 @@ final class AppModel: ObservableObject {
         var item: CaptureItem
     }
 
+    private enum PickerRetry {
+        case capture(CaptureMode)
+        case scrolling
+    }
+
     @Published var shelfState: ShelfState = .expanded
     @Published var shelfIsInactive = false
     @Published private(set) var activeShelfHotKey: HotKey?
@@ -26,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published var statusMessage = "Готово к захвату"
     @Published private(set) var isBusy = false
     @Published private(set) var activeHotKey: HotKey?
+    @Published private var pickerRetry: PickerRetry?
 
     let preferences: AppPreferences
     let history: HistoryStore
@@ -50,9 +56,7 @@ final class AppModel: ObservableObject {
     private var restartAreaCaptureAfterCancellation = false
     private var areaHotKeyAttemptCount = 0
     private let systemContentCapture = SystemContentCaptureController()
-    private var lastCaptureMode: CaptureMode = .area
-    private var lastCaptureWasScrolling = false
-    private var isCheckingScreenCapturePermission = false
+    let captureFeedback = CaptureFeedbackPanel()
 
     init(preferences: AppPreferences? = nil) {
         let preferences = preferences ?? AppPreferences()
@@ -114,7 +118,7 @@ final class AppModel: ObservableObject {
             do {
                 try activateHotKey(candidate)
                 if candidate != preferred {
-                    statusMessage = "Сохраненный хоткей занят. Включен стандартный: \(hotKeyDescription)"
+                    showCaptureFeedback("Сохраненный хоткей недоступен. Временно действует \(hotKeyDescription).")
                 }
                 return
             } catch {
@@ -123,9 +127,6 @@ final class AppModel: ObservableObject {
         }
 
         activeHotKey = hotKeyService.registeredHotKey
-        if let activeHotKey {
-            preferences.setHotKey(activeHotKey)
-        }
         if let lastError {
             presentHotKeyRegistrationError(lastError)
         }
@@ -133,17 +134,12 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func registerHotKey(_ candidateHotKey: HotKey) -> Bool {
-        let previousHotKey = activeHotKey
         do {
             try activateHotKey(candidateHotKey)
+            if let activeHotKey { preferences.setHotKey(activeHotKey) }
             return true
         } catch {
             activeHotKey = hotKeyService.registeredHotKey
-            if let activeHotKey {
-                preferences.setHotKey(activeHotKey)
-            } else if let previousHotKey {
-                preferences.setHotKey(previousHotKey)
-            }
             presentHotKeyRegistrationError(error)
             return false
         }
@@ -153,7 +149,6 @@ final class AppModel: ObservableObject {
         try hotKeyService.register(candidateHotKey) { [weak self] in self?.handleAreaHotKey() }
         activeHotKey = hotKeyService.registeredHotKey
         if let activeHotKey {
-            preferences.setHotKey(activeHotKey)
             statusMessage = "Хоткей: \(ActiveHotKeyFormatter.symbolic(activeHotKey))"
         }
     }
@@ -167,8 +162,6 @@ final class AppModel: ObservableObject {
     }
 
     func capture(_ mode: CaptureMode) {
-        lastCaptureMode = mode
-        lastCaptureWasScrolling = false
         switch mode {
         case .area: captureArea()
         case .window, .fullScreen:
@@ -177,20 +170,16 @@ final class AppModel: ObservableObject {
     }
 
     private func captureArea() {
-        lastCaptureMode = .area
-        lastCaptureWasScrolling = false
         guard CGPreflightScreenCaptureAccess() else {
             captureWithSystemPicker(.area)
             return
         }
         guard let regionSelectionController else {
             CaptureTelemetry.logger.error("area_capture_unavailable")
+            showCaptureFeedback("Не удалось открыть выбор области снимка.")
             return
         }
-        guard let request = prepareCaptureRequest() else {
-            statusMessage = "Дождитесь завершения текущего захвата"
-            return
-        }
+        guard let request = prepareCaptureRequest() else { return }
         CaptureTelemetry.logger.notice("area_capture_started")
         let captureService = captureService
         let captureTask = Task { @MainActor in
@@ -201,7 +190,7 @@ final class AppModel: ObservableObject {
         }
         activeAreaCaptureTask = captureTask
         activeAreaCaptureID = request.id
-        finishCapture(request, task: captureTask, isAreaCapture: true)
+        finishCapture(request, task: captureTask, mode: .area)
     }
 
     private func captureWithSystemUI(_ mode: CaptureMode) {
@@ -214,7 +203,7 @@ final class AppModel: ObservableObject {
         let captureTask = Task.detached(priority: .userInitiated) {
             try await captureService.capture(mode, to: request.temporaryURL)
         }
-        finishCapture(request, task: captureTask, isAreaCapture: false)
+        finishCapture(request, task: captureTask, mode: mode)
     }
 
     private func captureWithSystemPicker(_ mode: CaptureMode) {
@@ -228,7 +217,7 @@ final class AppModel: ObservableObject {
             let filter = try await systemContentCapture.select(window: mode == .window)
             if Task.isCancelled { throw CaptureError.cancelled }
             let prepared = try systemContentCapture.prepared(filter)
-            let image = try await captureService.capture(prepared)
+            let image = try await captureFeedback.captureFrame { try await captureService.capture(prepared) }
             if Task.isCancelled { throw CaptureError.cancelled }
             let result: CGImage
             if mode == .area {
@@ -246,12 +235,17 @@ final class AppModel: ObservableObject {
             activeAreaCaptureTask = captureTask
             activeAreaCaptureID = request.id
         }
-        finishCapture(request, task: captureTask, isAreaCapture: mode == .area)
+        finishCapture(request, task: captureTask, mode: mode)
     }
 
     private func prepareCaptureRequest() -> CaptureRequest? {
         let id = UUID()
-        guard captureActivity.beginCapture(id: id) else { return nil }
+        guard captureActivity.beginCapture(id: id) else {
+            showCaptureFeedback("Дождитесь завершения текущего захвата.")
+            return nil
+        }
+        captureFeedback.hide()
+        pickerRetry = nil
         let sequence = makeCaptureSequence()
         updateBusyState()
         let source = CaptureSourceProvider.current()
@@ -265,8 +259,9 @@ final class AppModel: ObservableObject {
     private func finishCapture(
         _ request: CaptureRequest,
         task captureTask: Task<Void, Error>,
-        isAreaCapture: Bool
+        mode: CaptureMode
     ) {
+        let isAreaCapture = mode == .area
         Task {
             defer {
                 try? FileManager.default.removeItem(at: request.temporaryURL)
@@ -285,6 +280,7 @@ final class AppModel: ObservableObject {
                 }
                 capturedAt = Date()
                 guard beginImport(for: request.id) else { return }
+                captureFeedback.hide()
             } catch where error is CancellationError || (error as? CaptureError) == .cancelled {
                 let shouldRestart = isAreaCapture && restartAreaCaptureAfterCancellation
                 restartAreaCaptureAfterCancellation = false
@@ -295,6 +291,7 @@ final class AppModel: ObservableObject {
                     statusMessage = "Повторно открываю выбор области…"
                     captureArea()
                 } else {
+                    captureFeedback.hide()
                     statusMessage = "Захват отменен"
                 }
                 return
@@ -302,7 +299,7 @@ final class AppModel: ObservableObject {
                 restartAreaCaptureAfterCancellation = false
                 cancelCapture(id: request.id)
                 resumeShelfAndPresentPendingResults()
-                present(error)
+                presentCaptureError(error, pickerRetry: .capture(mode))
                 return
             }
 
@@ -318,7 +315,7 @@ final class AppModel: ObservableObject {
                 finishImport(id: request.id)
                 if captureActivity.canPresentCaptureResults {
                     shelfController?.resume()
-                    present(error)
+                    presentCaptureError(error)
                 } else {
                     statusMessage = error.localizedDescription
                 }
@@ -334,7 +331,7 @@ final class AppModel: ObservableObject {
         }
 
         guard activeAreaCaptureTask != nil else {
-            statusMessage = "Дождитесь завершения текущего захвата"
+            showCaptureFeedback("Дождитесь завершения текущего захвата.")
             return
         }
 
@@ -355,6 +352,7 @@ final class AppModel: ObservableObject {
             areaHotKeyAttemptCount = 1
             capture(.area)
         case .refocus:
+            captureFeedback.hide()
             regionSelectionController?.focusPendingOverlayIfNeeded()
             statusMessage = "Выберите область снимка"
             CaptureTelemetry.logger.notice("area_capture_refocused")
@@ -363,7 +361,8 @@ final class AppModel: ObservableObject {
             CaptureTelemetry.logger.notice(
                 "area_capture_recovery_wait attempts=\(attempts, privacy: .public)"
             )
-            statusMessage = "Выбор области не отвечает. Нажмите хоткей еще раз для восстановления"
+            showCaptureFeedback("Выбор области еще не открылся. Нажмите хоткей еще раз для восстановления.",
+                                duringRecovery: true)
         case .cancelAndRestart:
             guard !restartAreaCaptureAfterCancellation else {
                 CaptureTelemetry.logger.notice("area_capture_restart_already_requested")
@@ -374,7 +373,7 @@ final class AppModel: ObservableObject {
             CaptureTelemetry.logger.notice(
                 "area_capture_recovery_triggered attempts=\(attempts, privacy: .public)"
             )
-            statusMessage = "Перезапускаю выбор области…"
+            showCaptureFeedback("Перезапускаю выбор области…", duringRecovery: true)
             activeAreaCaptureTask?.cancel()
             let cancelledVisibleSelection = regionSelectionController?.cancelActiveSelection() ?? false
             CaptureTelemetry.logger.notice(
@@ -384,11 +383,12 @@ final class AppModel: ObservableObject {
     }
 
     func startScrollingCapture(forceSystemPicker: Bool = false) {
-        lastCaptureWasScrolling = true
         let useSystemPicker = forceSystemPicker || !CGPreflightScreenCaptureAccess()
         guard let regionSelectionController else { return }
         let captureID = UUID()
         guard captureActivity.beginCapture(id: captureID) else { return }
+        captureFeedback.hide()
+        pickerRetry = nil
         let captureSequence = makeCaptureSequence()
         updateBusyState()
         pendingScrollCaptureID = captureID
@@ -432,7 +432,7 @@ final class AppModel: ObservableObject {
                 pendingScrollCaptureSequence = nil
                 cancelCapture(id: captureID)
                 resumeShelfAndPresentPendingResults()
-                present(error)
+                presentCaptureError(error, pickerRetry: .scrolling)
             }
         }
     }
@@ -473,7 +473,7 @@ final class AppModel: ObservableObject {
                 finishImport(id: captureID)
                 if captureActivity.canPresentCaptureResults {
                     shelfController?.resume()
-                    present(error)
+                    presentCaptureError(error)
                 } else {
                     statusMessage = error.localizedDescription
                 }
@@ -701,22 +701,13 @@ final class AppModel: ObservableObject {
         received(result.item)
     }
 
-    private func showScreenCapturePermissionAlert() {
-        statusMessage = "Нужен доступ к записи экрана"
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Выберите источник снимка через macOS"
-        alert.informativeText = "macOS не подтвердила общий доступ к экрану для этой копии программы. Можно сделать снимок без переустановки: выберите нужный экран или окно в системном диалоге. Программа получит доступ только к выбранному содержимому на время этого захвата."
-        alert.addButton(withTitle: "Выбрать источник")
-        alert.addButton(withTitle: "Отмена")
-        alert.addButton(withTitle: "Настройки доступа")
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            if lastCaptureWasScrolling { startScrollingCapture(forceSystemPicker: true) }
-            else { captureWithSystemPicker(lastCaptureMode) }
-        } else if response == .alertThirdButtonReturn {
-            openScreenRecordingSettings()
+    var canRetryCaptureWithPicker: Bool { pickerRetry != nil }
+
+    func retryCaptureWithPicker() {
+        guard captureActivity.canStartCapture, let pickerRetry else { return }
+        switch pickerRetry {
+        case let .capture(mode): captureWithSystemPicker(mode)
+        case .scrolling: startScrollingCapture(forceSystemPicker: true)
         }
     }
 
@@ -726,17 +717,26 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func present(_ error: Error) {
+    private func showCaptureFeedback(_ message: String, duration: Duration = .seconds(5), duringRecovery: Bool = false) {
+        statusMessage = message
+        guard duringRecovery || !captureActivity.isCaptureActive else { return }
+        captureFeedback.show(message, duration: duration)
+    }
+
+    private func presentCaptureError(_ error: Error, pickerRetry: PickerRetry? = nil) {
         let nsError = error as NSError
         CaptureTelemetry.logger.error("capture_error domain=\(nsError.domain, privacy: .public) code=\(nsError.code) global_access=\(CGPreflightScreenCaptureAccess())")
         if error is ScreenCapturePermissionError ||
             (nsError.domain == SCStreamErrorDomain && nsError.code == SCStreamError.userDeclined.rawValue) {
-            guard !isCheckingScreenCapturePermission else { return }
-            isCheckingScreenCapturePermission = true
-            defer { isCheckingScreenCapturePermission = false }
-            showScreenCapturePermissionAlert()
-            return
+            self.pickerRetry = pickerRetry
+            showCaptureFeedback("macOS не дала доступ к экрану. Откройте «Настройки → Доступ», чтобы выбрать источник снимка.",
+                                duration: .seconds(8))
+        } else {
+            showCaptureFeedback("Скриншот не готов. \(error.localizedDescription)", duration: .seconds(8))
         }
+    }
+
+    func present(_ error: Error) {
         statusMessage = error.localizedDescription
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert(error: error)
@@ -766,13 +766,6 @@ final class AppModel: ObservableObject {
     }
 
     private func presentHotKeyRegistrationError(_ error: Error) {
-        statusMessage = error.localizedDescription
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        NSApp.activate(ignoringOtherApps: true)
-        alert.messageText = "Не удалось назначить хоткей"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "Выбрать другое сочетание")
-        alert.runModal()
+        showCaptureFeedback("Не удалось назначить хоткей. \(error.localizedDescription)", duration: .seconds(8))
     }
 }

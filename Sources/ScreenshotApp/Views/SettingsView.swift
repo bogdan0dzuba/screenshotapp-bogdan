@@ -69,6 +69,11 @@ struct SettingsView: View {
                         .fontWeight(.semibold)
                         .textSelection(.enabled)
                 }
+                if model.activeHotKey != preferences.hotKey {
+                    LabeledContent("Сохраненная комбинация") {
+                        Text(HotKeyDisplayFormatter.readable(preferences.hotKey))
+                    }
+                }
                 LabeledContent("Новая комбинация") {
                     Text(HotKeyDisplayFormatter.readable(hotKeyDraft))
                         .fontWeight(.semibold)
@@ -186,7 +191,7 @@ struct SettingsView: View {
     }
 
     private func synchronizeHotKeyDraft() {
-        let hotKey = model.activeHotKey ?? preferences.hotKey
+        let hotKey = preferences.hotKey
         draftHotKeyLetter = hotKey.key
         draftUseCommand = hotKey.modifiers.contains(.command)
         draftUseShift = hotKey.modifiers.contains(.shift)
@@ -236,6 +241,10 @@ struct SettingsView: View {
                 Text("Для снимков приложению требуется разрешение «Запись экрана». Изображения и распознанный текст никуда не отправляются.")
                     .foregroundStyle(.secondary)
                 Button("Открыть настройки записи экрана") { model.openScreenRecordingSettings() }
+                if model.canRetryCaptureWithPicker {
+                    Button("Выбрать источник снимка…") { model.retryCaptureWithPicker() }
+                        .disabled(model.isBusy)
+                }
             }
             Section("Приватность") {
                 Label("Без облака и аккаунта", systemImage: "icloud.slash")
