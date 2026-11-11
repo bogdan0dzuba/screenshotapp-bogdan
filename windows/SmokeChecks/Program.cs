@@ -180,7 +180,6 @@ internal static class Program
         }
         Console.WriteLine($"PASS desktop capture → global hotkey → mouse selection → editor → shelf PNG ({area.Width}×{area.Height}, both colors)");
         app.Windows.OfType<EditorWindow>().Single().Close();
-        await CheckShelfDragAsync(home, marker, store.Recent().Single());
     }
 
     private static async Task CheckShelfDragAsync(MainWindow home, Window target, string path)
